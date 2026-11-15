@@ -21,11 +21,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -140,6 +143,8 @@ internal fun EditorScreen(
     var editToolsMode by rememberSaveable { mutableStateOf<String?>(null) }
     var recipeName by remember { mutableStateOf("") }
     var comparing by rememberSaveable(vm.currentUri?.toString()) { mutableStateOf(false) }
+    val windowLayout = rememberEditorWindowLayout()
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     fun selectEditorTab(tab: EditorTab) {
         if (tab == EditorTab.Gallery) {
@@ -150,9 +155,9 @@ internal fun EditorScreen(
         selectedTab = tab
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
         // A phone held sideways is wide but too short for all five rail destinations.
-        val expanded = maxHeight >= 500.dp && (maxWidth >= 840.dp || (maxWidth >= 600.dp && maxWidth > maxHeight))
+        val expanded = windowLayout.expanded
         if (adjustmentFullscreen) {
             AdjustmentFullscreen(
                 mode = selectedTab.label,
@@ -205,7 +210,7 @@ internal fun EditorScreen(
                             DropdownMenuItem(text = { Text("关于") }, onClick = { showMoreMenu = false; aboutVisible = true })
                         }
                     }
-                    if (selectedTab != EditorTab.Export && vm.photos.isNotEmpty()) EditorPhotoStrip(
+                    if (!keyboardVisible && selectedTab != EditorTab.Export && vm.photos.isNotEmpty()) EditorPhotoStrip(
                         vm = vm,
                         onAddPhotos = {
                             addToStage = true
@@ -217,7 +222,7 @@ internal fun EditorScreen(
                 }
             },
             bottomBar = {
-                if (!expanded && !vm.isCropping && selectedTab != EditorTab.Gallery) {
+                if (!keyboardVisible && !expanded && !vm.isCropping && selectedTab != EditorTab.Gallery) {
                     EditorNavigationBar(selectedTab, !vm.busy && !vm.isExporting && !vm.isBatchExporting, ::selectEditorTab)
                 }
             }
@@ -225,7 +230,7 @@ internal fun EditorScreen(
             BoxWithConstraints(
                 Modifier.fillMaxSize().padding(contentPadding).imePadding()
             ) {
-                val landscape = maxWidth > maxHeight
+                val landscape = windowLayout.landscape
                 val parameterWidth = (maxWidth * .44f).coerceIn(280.dp, 440.dp)
                 if (vm.isCropping && vm.sourceBitmap != null) {
                     CropWorkspace(vm, Modifier.fillMaxSize())
@@ -266,8 +271,10 @@ internal fun EditorScreen(
                         PhotoCanvas(vm, comparing, onImport = { pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                             modifier = Modifier.weight(1f).fillMaxHeight())
                         Column(Modifier.width(parameterWidth).fillMaxHeight()) {
-                            PhotoMetadataStrip(vm)
-                            EditorStockSelection(vm, onOpenFilmStocks, onOpenPaperStocks)
+                            if (!keyboardVisible) {
+                                PhotoMetadataStrip(vm)
+                                EditorStockSelection(vm, onOpenFilmStocks, onOpenPaperStocks)
+                            }
                             EditorPanel(vm, destination, Modifier.weight(1f).fillMaxWidth(), panelStates, onSaveRecipe = { showSaveRecipeDialog = true })
                         }
                     }
@@ -275,7 +282,7 @@ internal fun EditorScreen(
                         PhotoCanvas(vm, comparing, onImport = { pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                             modifier = Modifier.weight(1.08f).fillMaxHeight())
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            if (destination != EditorTab.Grade) {
+                            if (!keyboardVisible && destination != EditorTab.Grade) {
                                 EditorStockSelection(vm, onOpenFilmStocks, onOpenPaperStocks)
                             }
                             EditorPanel(vm, destination, Modifier.weight(1f).fillMaxWidth(), panelStates,

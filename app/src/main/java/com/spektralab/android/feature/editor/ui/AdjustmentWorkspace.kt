@@ -57,7 +57,11 @@ internal fun AdjustmentWorkspace(
         val heightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
         val minimumPreview = minOf(192.dp, maxHeight * .35f)
         val minimumPanel = minOf(240.dp, maxHeight * .5f)
-        val panelHeight = (maxHeight * panelFraction).coerceIn(minimumPanel, maxHeight - minimumPreview)
+        // Give typing the available height without moving the controls to a different composition.
+        // Keep the user's split fraction so hiding the keyboard restores the photo workspace.
+        val typing = WindowInsets.ime.getBottom(density) > 0
+        val panelHeight = if (typing) maxHeight else
+            (maxHeight * panelFraction).coerceIn(minimumPanel, maxHeight - minimumPreview)
         val handleHeight = 56.dp
         val dragState = rememberDraggableState { delta ->
             controlsCollapsed = false

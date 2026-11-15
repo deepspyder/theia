@@ -3,7 +3,6 @@ package com.spektralab.android.feature.editor.ui.panels
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -71,11 +70,7 @@ internal fun PrintPanel(vm: EditorViewModel) {
     }
 
     EditorSection("日期后背", "日期文字 · 拍摄数据 · 位置 · 曝光", initiallyExpanded = false) {
-        ToggleRow("日期后背", vm.params.dateImprintActive) {
-            vm.params.dateImprintActive = it
-            if (it && vm.params.dateImprintText.isEmpty()) vm.params.dateImprintText = vm.currentDateText()
-            vm.scheduleRender()
-        }
+        ToggleRow("日期后背", vm.params.dateImprintActive, onChecked = vm::setDateImprintEnabled)
         if (vm.params.dateImprintActive) {
             OptionsDropdown("日期样式", listOf("lcd", "dots", "data"), vm.params.dateImprintStyle, Modifier.fillMaxWidth(), optionLabel = ::editorOptionLabel) {
                 vm.params.dateImprintStyle = it
@@ -86,10 +81,7 @@ internal fun PrintPanel(vm: EditorViewModel) {
             OptionsDropdown("角落", listOf("br", "bl", "tr", "tl"), vm.params.dateImprintCorner, Modifier.fillMaxWidth(), optionLabel = ::editorOptionLabel) { vm.params.dateImprintCorner = it; vm.scheduleRender() }
             SliderRow("大小", vm.params.dateImprintSize, 0.4f..3f, "%.2f") { vm.params.dateImprintSize = it; vm.scheduleRender() }
             SliderRow("曝光", vm.params.dateImprintEv, -2f..8f, "%+.1f") { vm.params.dateImprintEv = it; vm.scheduleRender() }
-            OutlinedTextField(value = vm.params.dateImprintText, onValueChange = { vm.params.dateImprintText = it; vm.scheduleRender() },
-                label = { Text("日期文字") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = vm.params.dateImprintDataText, onValueChange = { vm.params.dateImprintDataText = it; vm.scheduleRender() },
-                label = { Text("拍摄数据（打印在片边）") }, modifier = Modifier.fillMaxWidth())
+            DateImprintFields(vm)
         }
     }
 }

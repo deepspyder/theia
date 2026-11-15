@@ -35,6 +35,7 @@ import com.spektralab.android.data.export.TiffWriter
 import com.spektralab.android.data.export.measureExport
 import com.spektralab.android.data.local.EditStore
 import com.spektralab.android.data.local.RecipeStore
+import com.spektralab.android.data.metadata.DateImprintMetadata
 import com.spektralab.android.engine.CameraWhiteBalance
 import com.spektralab.android.engine.ColorPipeline
 import com.spektralab.android.engine.EngineTaskQueue
@@ -364,12 +365,20 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun dismissError() { errorMessage = null }
 
-    // 日期后背用的当前日期（lcd 风格：'YY M D，月/日无前导零）。
-    fun currentDateText(): String {
-        val cal = java.util.Calendar.getInstance()
-        return "'" + (cal.get(java.util.Calendar.YEAR) % 100) + " " +
-               (cal.get(java.util.Calendar.MONTH) + 1) + " " +
-               cal.get(java.util.Calendar.DAY_OF_MONTH)
+    internal var dateImprintMetadata by mutableStateOf(DateImprintMetadata())
+        private set
+
+    fun setDateImprintEnabled(enabled: Boolean) {
+        params.dateImprintActive = enabled
+        if (enabled) dateImprintMetadata.applyTo(params)
+        scheduleRender()
+    }
+
+    /** Explicitly restore available photo values, retaining manual text for missing metadata. */
+    fun usePhotoDateImprint() {
+        val before = params.dateImprintText to params.dateImprintDataText
+        dateImprintMetadata.applyTo(params, replace = true)
+        if (before != (params.dateImprintText to params.dateImprintDataText)) scheduleRender()
     }
 
     // 错误：弹窗提示 + 记日志。
@@ -1813,6 +1822,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun clearPhotoState() {
         paramsUri = null
         photoInfo = emptyList()
+        dateImprintMetadata = DateImprintMetadata()
         rawCamXyz = null
         sourceExif = null
         sourceBitmap = null
@@ -1861,11 +1871,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     val saved = if(autoDevelop) ensureSmartParams(uri, importStyle, true) else EditStore.load(app, uri)
                     val name = queryDisplayName(uri)
                     val exif = readExif(uri)
+                    val imprintMetadata = DateImprintMetadata.from(exif)
                     val imageBounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     runCatching { app.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, imageBounds) } }
                     val isRaw = RawDecoder.isRaw(app, uri, name)
                     withContext(Dispatchers.Main.immediate) metadata@{
                         if (photo != photoGeneration) return@metadata
+                        dateImprintMetadata = imprintMetadata
                         photoInfo = buildList {
                             add("文件名" to (name ?: "未知"))
                             val width = (exif?.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0) ?: 0).takeIf { it > 0 } ?: imageBounds.outWidth

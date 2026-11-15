@@ -399,4 +399,12 @@
     <string name="export_host_title">Theia 正在冲印</string>
     <string name="export_host_working">保持原始画质处理照片，可返回应用查看进度</string>
     <string name="export_corrupt_frame">全尺寸渲染结果异常，已停止保存。原片和编辑设置已保留。</string>
+    <string name="date_imprint_photo_hint">开启时自动填入照片的拍摄日期与参数，已有文字保留。未记录的信息可手动补充。</string>
+    <string name="date_imprint_use_photo">使用照片日期与参数</string>
+    <string name="date_imprint_date">日期文字</string>
+    <string name="date_imprint_data">拍摄数据（打印在片边）</string>
+    <string name="date_imprint_date_missing">照片未记录拍摄日期，请手动输入。</string>
+    <string name="date_imprint_date_found">照片包含拍摄日期，可手动修改。</string>
+    <string name="date_imprint_data_missing">照片未记录拍摄参数，请手动输入。</string>
+    <string name="date_imprint_data_found">已读取可用的焦距、光圈、快门和 ISO，缺失项可补充。</string>
 </resources>

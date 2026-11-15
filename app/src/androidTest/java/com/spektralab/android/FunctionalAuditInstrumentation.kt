@@ -137,6 +137,8 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        editorKeyboardOnly = audit == "editor-keyboard"
+        dateImprintOnly = audit == "date-imprint"
         projectRestoreOnly = audit == "project-restore"
         cineStillOnly = audit in setOf("cinestill", "cinestill-native", "cinestill-layout", "cinestill-raw", "cinestill-performance")
         cineStillMode = audit.orEmpty()
@@ -257,9 +259,25 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var cacheMaintenanceOnly = false
     private var appearanceOnly = false
     private var exportLifecycleOnly = false
+    private var editorKeyboardOnly = false
+    private var dateImprintOnly = false
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        if (dateImprintOnly) {
+            case("editor.date_imprint_photo_metadata") { DateImprintAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (editorKeyboardOnly) {
+            case("editor.keyboard_preserves_date_input") { EditorKeyboardAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         if (appearanceOnly) {
             case("export.catastrophic_frame_detection") { RenderAppearanceAudit.run() }
             val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
