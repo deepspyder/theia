@@ -5,6 +5,10 @@ import android.net.Uri
 import android.provider.MediaStore
 import com.spektralab.android.data.export.ExportPublisher
 import com.spektralab.android.data.export.TiffWriter
+import com.spektralab.android.data.export.PngRowWriter
+import com.spektralab.android.data.export.ExportMetadata
+import com.spektralab.android.data.export.JpegRowWriter
+import com.spektralab.android.engine.Rgba16Source
 import com.spektralab.android.engine.ColorPipeline
 import com.spektralab.android.engine.Grade
 import java.io.ByteArrayOutputStream
@@ -50,6 +54,57 @@ internal class ExportEncodingAudit(private val test: Instrumentation) {
         val adjusted = Grade(1.04f, .98f, .96f, 1.2f, .15f, .1f, 1.1f, -.1f, .12f, .02f, .01f,
             floatArrayOf(.01f, -.01f, .02f), FloatArray(3), floatArrayOf(.02f, .01f, -.01f),
             .6f, .5f, .7f)
+        val source = object : Rgba16Source {
+            override val width = 257
+            override val height = 257
+            override fun readRows(y: Int, rows: Int, destination: ShortArray) {
+                check(rows <= 32) { "PNG requested a whole-frame read" }
+                pixels.copyInto(destination, 0, y * width * 4, (y + rows) * width * 4)
+            }
+        }
+        val metadata = ExportMetadata(mapOf("Make" to "TheiaAudit", "DateTimeOriginal" to "2026:11:15 12:34:56",
+            "GPSLatitudeRef" to "N", "GPSLatitude" to "1/1,2/1,3/1", "GPSLongitudeRef" to "E", "GPSLongitude" to "4/1,5/1,6/1"))
+        check(android.os.Build.VERSION.SDK_INT < 30 || JpegRowWriter.available) { "System JPEG path was not exercised" }
+        for (adjustment in listOf(grade, adjusted)) {
+            val png = ByteArrayOutputStream().also { PngRowWriter.write(source, adjustment, it, {}, metadata) }.toByteArray()
+            val bitmap = requireNotNull(android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size))
+            try {
+                val actual = IntArray(width * height); bitmap.getPixels(actual, 0, width, 0, 0, width, height)
+                val reference = ColorPipeline.applyGradeAndHistogram(pixels, width, height, adjustment, "sRGB").argb
+                check(actual.contentEquals(reference)) { "Streaming PNG changed graded pixels" }
+            } finally { bitmap.recycle() }
+            val exif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(png))
+            check(exif.getAttribute("Make") == "TheiaAudit" && exif.getAttribute("DateTimeOriginal") == "2026:11:15 12:34:56")
+            check(exif.latLong != null && exif.getAttributeInt("Orientation", 0) == 1) { "PNG EXIF/GPS directory changed" }
+            if (JpegRowWriter.available) {
+                val reference = ColorPipeline.applyGradeAndHistogram(pixels, width, height, adjustment, "sRGB").argb
+                val bitmap = android.graphics.Bitmap.createBitmap(reference, width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                try {
+                    for (quality in listOf(50, 80, 95, 100)) {
+                        val old = ByteArrayOutputStream().also { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, it)) }.toByteArray()
+                        val current = ByteArrayOutputStream().also { JpegRowWriter.write(test.targetContext, source, adjustment, quality, it, {}) }.toByteArray()
+                        val expectedImage = requireNotNull(android.graphics.BitmapFactory.decodeByteArray(old, 0, old.size))
+                        val actualImage = requireNotNull(android.graphics.BitmapFactory.decodeByteArray(current, 0, current.size))
+                        try {
+                            val expectedPixels = IntArray(width * height); val actualPixels = IntArray(width * height)
+                            expectedImage.getPixels(expectedPixels, 0, width, 0, 0, width, height)
+                            actualImage.getPixels(actualPixels, 0, width, 0, 0, width, height)
+                            check(actualPixels.contentEquals(expectedPixels)) { "System JPEG changed decoded pixels at quality=$quality" }
+                        } finally { expectedImage.recycle(); actualImage.recycle() }
+                    }
+                } finally { bitmap.recycle() }
+                val jpeg = ByteArrayOutputStream().also { JpegRowWriter.write(test.targetContext, source, adjustment, 95, it, {}, metadata) }.toByteArray()
+                val jpegExif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(jpeg))
+                check(jpegExif.getAttribute("Make") == "TheiaAudit" && jpegExif.latLong != null)
+                val interrupted = runCatching {
+                    JpegRowWriter.write(test.targetContext, source, adjustment, 100, object : java.io.OutputStream() {
+                        override fun write(value: Int) { error("JPEG output sentinel") }
+                        override fun write(value: ByteArray, offset: Int, length: Int) { error("JPEG output sentinel") }
+                    }, {})
+                }.exceptionOrNull()
+                check(interrupted?.message == "JPEG output sentinel") { "JPEG write failure lost its cause: $interrupted" }
+            }
+        }
         for (colorSpace in listOf("sRGB", "Display P3")) for (adjustment in listOf(grade, adjusted)) {
             val reference = ColorPipeline.applyGradeAndHistogram(pixels, width, height, adjustment, colorSpace)
             val (bitmap, histogram) = ColorPipeline.applyGradeToBitmap(pixels, width, height, adjustment, colorSpace)
@@ -108,6 +163,6 @@ internal class ExportEncodingAudit(private val test: Instrumentation) {
         } finally {
             (auditOutputs() - before).forEach { resolver.delete(it, null, null) }
         }
-        return "All 65536 identity samples retain exact TIFF/8-bit quantization; RGB strips match; direct publication commits once and deletes failed/cancelled entries"
+        return "All 65536 identity samples exact; row PNG neutral/grade/vignette pixels and EXIF/GPS exact; NDK JPEG decoded pixels match Bitmap at quality 50/80/95/100 with metadata/failure cleanup; publication commits once and deletes failed/cancelled entries"
     }
 }

@@ -6,7 +6,7 @@ function(theia_android_vulkan_backend engine_dir output_variable)
     file(READ "${upstream}" source)
 
     set(before_include "#include \"gpu.hpp\"")
-    set(after_include "#include \"gpu.hpp\"\n#include \"vulkan_memory_policy.hpp\"")
+    set(after_include "#include \"gpu.hpp\"\n#include \"vulkan_memory_policy.hpp\"\n#include \"export_execution.hpp\"\n#include \"bounded_dispatch_stats.hpp\"\n#include \"windows/window_plan.hpp\"\n#include <numeric>")
     set(before_reuse "!b->persistent && b->refs == 0 && b->bytes >= bytes &&")
     set(after_reuse "!b->persistent && b->refs == 0 && theia::vulkan_memory::can_reuse(b->bytes, bytes) &&")
     set(before_claim "best->refs = 1;")
@@ -29,6 +29,30 @@ function(theia_android_vulkan_backend engine_dir output_variable)
         string(REPLACE "${before_${anchor}}" "${after_${anchor}}" source "${source}")
     endforeach()
 
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/AndroidBoundedDispatch.cmake")
+    theia_android_bounded_dispatch("${source}" source)
+    theia_f14_replace(source "    size_t bytes = 0;" "    size_t bytes = 0;\n    size_t used = 0;" "logical Vulkan buffer size")
+    theia_f14_replace(source "best->refs = 1;" "best->refs = 1;\n                best->used = bytes;" "logical reused buffer size")
+    theia_f14_replace(source "b->bytes = bytes;" "b->bytes = bytes;\n        b->used = bytes;" "logical allocated buffer size")
+    theia_f14_replace(source "if (b->bytes > storage_range_limit_) {" "if (b->used > storage_range_limit_) {" "logical legacy binding limit")
+    theia_f14_replace(source "infos[i] = {b->handle, 0, VkDeviceSize(b->bytes)};" "infos[i] = {b->handle, 0, VkDeviceSize(b->used)};" "logical legacy binding range")
+    theia_f14_replace(source "storage_range_limit_ = properties_.limits.maxStorageBufferRange;"
+        "storage_range_limit_ = properties_.limits.maxStorageBufferRange;\n        if (const auto forced = forced_storage_range()) storage_range_limit_ = std::min<uint64_t>(storage_range_limit_, forced);" "diagnostic strict storage range")
+    theia_f14_replace(source "    void probe_cpu_storage_range(std::string& detail) {"
+        "    void probe_cpu_storage_range(std::string& detail) {\n        if (forced_storage_range()) return;" "strict range excludes CPU relaxation")
+    theia_f14_replace(source "{\"spk_take_rgb\", 3, kWorkgroup},"
+        "{\"spk_take_rgb\", 3, kWorkgroup},\n    {\"spk_window_copy\", 3, kWorkgroup}," "window transfer kernel")
+    set(signature "    bool dispatch(const char* kernel, const std::vector<Arg>& args,\n                  size_t n_threads, std::string& error) override {")
+    file(READ "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../windows/WindowedDispatch.cpp.in" dispatch_windows)
+    file(READ "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../windows/WindowedIir.cpp.in" iir_windows)
+    file(READ "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../windows/WindowedReduction.cpp.in" reduction_windows)
+    string(APPEND dispatch_windows "\n${iir_windows}")
+    string(APPEND dispatch_windows "\n${reduction_windows}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../windows/WindowedDispatch.cpp.in"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../windows/WindowedIir.cpp.in"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../windows/WindowedReduction.cpp.in")
+    theia_f14_replace(source "${signature}" "${dispatch_windows}\n    bool dispatch_legacy(const char* kernel, const std::vector<Arg>& args,\n                  size_t n_threads, std::string& error) {" "descriptor-window dispatch")
     set(generated "${CMAKE_CURRENT_BINARY_DIR}/generated/vulkan_gpu_android.cpp")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
     set(previous_source "")

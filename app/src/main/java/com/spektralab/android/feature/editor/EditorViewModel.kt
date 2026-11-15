@@ -79,7 +79,7 @@ import org.json.JSONObject
  * - 参数/渲染结果/源图都留在这里，旋转后直接复用，不重新解码。
  */
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
-    private class ExportCancelled : Exception()
+    private class ExportCancelled : CancellationException("Export cancelled")
     @Volatile private var exportCancelRequested = false
     @Volatile private var tableNativeRendering = false
 
@@ -1526,6 +1526,17 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // 渲染期间并发轮询进度，支持取消。
     private data class InterruptedPreview(val photo: Long, val render: Boolean, val grade: Boolean)
 
+    @Volatile
+    private var activeExportTask: com.spektralab.android.data.export.ExportCoordinator.Task? = null
+
+    private fun exportStageLabel(stage: String) = when (stage) {
+        "preparing" -> "准备导出"
+        "decoding" -> "解码原图"
+        "readback", "releasing" -> "准备保存"
+        "encoding" -> "编码并保存文件"
+        else -> "胶片冲印与相纸扫描"
+    }
+
     private fun pendingPreviewWork() = InterruptedPreview(
         photoGeneration,
         renderJob?.isActive == true && publishedRenderRequest != renderRequest,
@@ -1547,84 +1558,40 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (params.unreadableColorAdjustments != null) { fail(app.getString(com.spektralab.android.R.string.color_unsupported)); return }
         if (params.unreadableToneCurves != null) { fail(app.getString(com.spektralab.android.R.string.curve_unsupported)); return }
         val interruptedPreview = pendingPreviewWork()
+        val uri = currentUri ?: return
+        val hostLease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
+            catch (failure: Exception) { fail("无法启动导出服务: ${failure.message}"); return }
         isExporting = true
         exportCancelRequested = false
         isExportCommitCompleted = false
-        val uri = currentUri
         val exportParams = EditSnapshot.capture(params).toParams()
         val options = captureExportOptions()
-        val outputCs = options.outputColorSpace
-        val outputSize = options.resolution
         renderProgress = 0f
         renderStage = "准备导出"
         viewModelScope.launch {
             engineTasks.run("export") {
-                var poller: Job? = null
                 var needsRestore = false
-                var cacheLease: com.spektralab.android.data.cache.RenderDiskCache.Lease? = null
                 try {
-                    renderStage = "解码原图"
-                    val cachedRequest = withContext(Dispatchers.IO) {
-                        uri?.let { renderCache.prepare(it, exportParams, options, ::checkExportCancellation) }
-                    }
-                    withContext(Dispatchers.IO) {
-                        // Assign before the dispatcher handoff so cancellation cannot lose a lease.
-                        cacheLease = cachedRequest?.let { renderCache.acquire(it, ::checkExportCancellation) }
-                    }
-                    val cached = cacheLease
-                    var dimensions = ""
-                    val path = if (cached != null) {
-                        cached.use { result ->
-                            RenderAdmission.check(app)
-                            dimensions = "${result.width}×${result.height}"
-                            sourceExif = withContext(Dispatchers.IO) { uri?.let { readExif(it, options.keepLocation) } }
-                            renderProgress = 96f
-                            renderStage = "编码并保存文件"
-                            android.util.Log.i("SpkCache", "export cache hit ${result.width}x${result.height}")
-                            withContext(Dispatchers.IO) { saveNativeResult(result, System.currentTimeMillis().toString(), exportParams, options) }
-                        }
-                    } else {
-                        withContext(engineDispatcher) {
-                            RenderAdmission.check(app)
-                            needsRestore = true
-                            if (uri != null) openExportSource(e, uri, exportParams, outputSize, outputCs, options)
-                        }
-                        checkExportCancellation()
-                        renderProgress = 8f
-                        renderStage = "胶片冲印与相纸扫描"
-                        val previousProgressId = withContext(engineDispatcher) { e.progressSnapshot().progressId }
-                        poller = launch(Dispatchers.IO) {
-                            while (isActive) {
-                                val progress = runCatching { e.progressSnapshot() }.getOrNull()
-                                if (exportCancelRequested) e.cancel()
-                                if (progress != null && progress.progressId != previousProgressId) withContext(Dispatchers.Main.immediate) {
-                                    renderProgress = max(renderProgress ?: 8f, 8f + progress.percent * .86f).coerceAtMost(94f)
-                                    if (progress.done && !exportCancelRequested) renderStage = "准备保存"
-                                }
-                                delay(120)
+                    val output = com.spektralab.android.data.export.PhotoExportPipeline(app).write(
+                        uri, queryDisplayName(uri) ?: "photo", EditSnapshot.capture(exportParams), options,
+                        ::checkExportCancellation,
+                        beforeNative = {
+                            withContext(engineDispatcher) {
+                                needsRestore = true
+                                e.park()
+                                RenderAdmission.check(app)
                             }
-                        }
-                        withContext(engineDispatcher) {
-                            measureExport("render") { e.renderExportOnce() }.use { result ->
-                                poller?.cancelAndJoin()
-                                poller = null
-                                checkExportCancellation()
-                                android.util.Log.i("SpkExport", "render complete ${result.width}x${result.height}; ${e.memoryReport()}")
-                                e.closeSession()
-                                dimensions = "${result.width}×${result.height}"
-                                if (cachedRequest != null && uri != null) {
-                                    withContext(Dispatchers.IO) { renderCache.store(cachedRequest, uri, result, ::checkExportCancellation) }
-                                }
-                                withContext(Dispatchers.Main.immediate) {
-                                    renderProgress = 96f
-                                    renderStage = "编码并保存文件"
-                                }
-                                withContext(Dispatchers.IO) { saveNativeResult(result, System.currentTimeMillis().toString(), exportParams, options) }
-                            }
-                        }
+                        },
+                        progress = { stage, percent ->
+                            renderStage = exportStageLabel(stage)
+                            renderProgress = if (stage == "encoding") 96f
+                                else max(renderProgress ?: 8f, 8f + percent * .86f).coerceAtMost(94f)
+                        },
+                    ) { result, metadata, task ->
+                        activeExportTask = task
+                        saveNativeResult(result, System.currentTimeMillis().toString(), exportParams, options, metadata)
                     }
-                    checkExportCancellation()
-                    append("导出成功: $dimensions → $path")
+                    append("导出成功: ${output.width}×${output.height} → ${output.path}")
                     toast("已导出到相册")
                     renderProgress = 100f
                     renderStage = "导出完成"
@@ -1642,13 +1609,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 } catch (ex: Exception) {
                     fail("${ex::class.simpleName}: ${ex.message}")
                 } finally {
-                    cacheLease?.close()
-                    poller?.cancelAndJoin()
+                    activeExportTask = null
                     val pl = previewLinear
                     if (pl != null && needsRestore) {
                         try {
-                            withContext(engineDispatcher) {
-                                sourceExif = uri?.let(::readExif)
+                            withContext(NonCancellable) { hostLease.releaseDevice() }
+                            withContext(NonCancellable + engineDispatcher) {
                                 e.open(pl, previewW, previewH, 3, params.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
                                 // Keep the approved frame; rebuild the negative lazily on the next edit.
                             }
@@ -1666,7 +1632,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     resumePreview(interruptedPreview)
                 }
             }
-        }
+        }.invokeOnCompletion { hostLease.close() }
     }
 
     internal fun cancelTableProjectExport() {
@@ -2212,6 +2178,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val batchSmartStyle = smartStyle
         val batchAutoDevelop = smartAutoEnabled
         val interruptedPreview = pendingPreviewWork()
+        val hostLease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
+            catch (failure: Exception) { fail("无法启动导出服务: ${failure.message}"); return }
         isBatchExporting = true
         exportCancelRequested = false
         isExportCommitCompleted = false
@@ -2227,8 +2195,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             engineTasks.onEngine("batch-export") {
                 val batchTs = System.currentTimeMillis()
                 var done = 0
+                var needsRestore = false
                 try {
-                    val outputCs = options.outputColorSpace
                     // Resolve missing smart edits before any output; later sidecar writes cannot change this batch.
                     val edits = batchPhotos.associateWith { uri ->
                         batchEdits[uri] ?: EditSnapshot.capture(
@@ -2246,30 +2214,20 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         check(photoParams.unreadableChannelMixer == null) { app.getString(com.spektralab.android.R.string.mixer_unsupported) }
                         check(photoParams.unreadableColorAdjustments == null) { app.getString(com.spektralab.android.R.string.color_unsupported) }
                         check(photoParams.unreadableToneCurves == null) { app.getString(com.spektralab.android.R.string.curve_unsupported) }
-                        val request = renderCache.prepare(uri, photoParams, options, ::checkExportCancellation)
-                        val cached = request?.let { renderCache.acquire(it, ::checkExportCancellation) }
-                        var dimensions = ""
-                        val path = if (cached != null) {
-                            cached.use { r ->
-                                RenderAdmission.check(app)
-                                checkExportCancellation()
-                                sourceExif = readExif(uri, options.keepLocation)
-                                dimensions = "${r.width}×${r.height}"
-                                android.util.Log.i("SpkCache", "batch cache hit ${r.width}x${r.height}")
-                                saveNativeResult(r, "$batchTs-$i", photoParams, options)
-                            }
-                        } else {
-                            RenderAdmission.check(app)
-                            openExportSource(e, uri, photoParams, options.resolution, outputCs, options)
-                            checkExportCancellation()
-                            measureExport("render") { e.renderExportOnce() }.use { r ->
-                                checkExportCancellation()
-                                e.closeSession()
-                                dimensions = "${r.width}×${r.height}"
-                                if (request != null) renderCache.store(request, uri, r, ::checkExportCancellation)
-                                saveNativeResult(r, "$batchTs-$i", photoParams, options)
-                            }
+                        val output = com.spektralab.android.data.export.PhotoExportPipeline(app).write(
+                            uri, queryDisplayName(uri) ?: "photo", edits.getValue(uri), options,
+                            ::checkExportCancellation,
+                            beforeNative = { needsRestore = true; e.park(); RenderAdmission.check(app) },
+                            progress = { stage, _ ->
+                                renderStage = "第 ${i + 1}/${batchPhotos.size} 张：${exportStageLabel(stage)}"
+                            },
+                        ) { result, metadata, task ->
+                            activeExportTask = task
+                            saveNativeResult(result, "$batchTs-$i", photoParams, options, metadata)
                         }
+                        activeExportTask = null
+                        val dimensions = "${output.width}×${output.height}"
+                        val path = output.path
                         done++
                         withContext(Dispatchers.Main.immediate) {
                             renderProgress = done.toFloat() / batchPhotos.size * 100f
@@ -2291,12 +2249,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 } catch (ex: Exception) {
                     withContext(Dispatchers.Main.immediate) { fail("${ex::class.simpleName}: ${ex.message}") }
                 } finally {
+                    activeExportTask = null
                     // 恢复当前照片预览。
                     val pl = previewLinear
-                    if (pl != null) {
+                    if (pl != null && needsRestore) {
                         try {
+                            withContext(NonCancellable) { hostLease.releaseDevice() }
                             withContext(Dispatchers.Main.immediate) { params = activeParams }
-                            sourceExif = activeUri?.let(::readExif)
                             e.open(pl, previewW, previewH, 3, activeParams.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
                         } catch (_: OutOfMemoryError) {
                             withContext(Dispatchers.Main.immediate) { append("恢复编辑会话时内存不足，请重新打开当前照片") }
@@ -2314,7 +2273,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
             }
-        }
+        }.invokeOnCompletion { hostLease.close() }
     }
 
     private fun runExportAction(
@@ -2516,7 +2475,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         exportKeepCapture, exportKeepLocation, lensCorrectionActive,
     )
 
-    private fun saveBitmap(bitmap: Bitmap, suffix: String, options: ExportOptions): String {
+    private fun saveBitmap(bitmap: Bitmap, suffix: String, options: ExportOptions,
+                           metadata: ExportMetadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation)): String {
         val ext = if (options.format == "PNG") "png" else "jpg"
         val mime = if (options.format == "PNG") "image/png" else "image/jpeg"
         val name = "Theia_$suffix.$ext"
@@ -2528,7 +2488,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             FileOutputStream(tmp).use { fos ->
                 check(bitmap.compress(fmt, options.jpegQuality.coerceIn(1, 100), fos)) { "图片编码失败" }
             }
-            ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation).attach(tmp, bitmap.width, bitmap.height)
+            metadata.attach(tmp, bitmap.width, bitmap.height)
             return publishExport(tmp, name, mime)
         } finally {
             tmp.delete()
@@ -2536,25 +2496,40 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // 按当前格式导出渲染结果（TIFF 走 16-bit，其余走 8-bit JPEG/PNG）。
-    private fun saveNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions): String {
-        return measureExport("encode_publish_${options.format}") { encodeNativeResult(result, suffix, editParams, options) }
+    private fun saveNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions,
+                                 metadata: ExportMetadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation)): String {
+        return measureExport("encode_publish_${options.format}") { encodeNativeResult(result, suffix, editParams, options, metadata) }
     }
 
-    private fun encodeNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions): String {
+    private fun encodeNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions, metadata: ExportMetadata): String {
+        if (options.format == "PNG") {
+            return exportPublisher().write("Theia_$suffix.png", "image/png") {
+                com.spektralab.android.data.export.PngRowWriter.write(result, grade(editParams), it, ::checkExportCancellation, metadata)
+            }
+        }
+        if (options.format == "JPEG" && com.spektralab.android.data.export.JpegRowWriter.available) {
+            return exportPublisher().write("Theia_$suffix.jpg", "image/jpeg") {
+                com.spektralab.android.data.export.JpegRowWriter.write(app, result, grade(editParams), options.jpegQuality,
+                    it, ::checkExportCancellation, metadata)
+            }
+        }
         if (options.format == "TIFF") {
             val icc = if (options.colorSpace == "Display P3") DisplayP3Icc.generate() else readSrgbIcc()
             return exportPublisher().write("Theia_$suffix.tiff", "image/tiff") {
                 TiffWriter.writeNative(result, grade(editParams), icc, it, ::checkExportCancellation,
-                    ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation))
+                    metadata)
             }
         }
         val bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, grade(editParams), ::checkExportCancellation)
-        try { return saveBitmap(bitmap, suffix, options) } finally { bitmap.recycle() }
+        try { return saveBitmap(bitmap, suffix, options, metadata) } finally { bitmap.recycle() }
     }
 
     private fun exportPublisher() = ExportPublisher(app, ::checkExportCancellation) {
         exportCancelRequested = false
         isExportCommitCompleted = true
+    }.also { publisher ->
+        publisher.onPrepared = { activeExportTask?.publishing(it) }
+        publisher.onReadyToCommit = { activeExportTask?.verifySource() }
     }
 
     private fun publishExport(tmp: File, name: String, mime: String): String =

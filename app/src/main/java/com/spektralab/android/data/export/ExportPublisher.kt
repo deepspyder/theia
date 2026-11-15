@@ -14,6 +14,8 @@ internal class ExportPublisher(
     private val checkCancelled: () -> Unit,
     private val onCommitted: () -> Unit,
 ) {
+    internal var onPrepared: (String) -> Unit = {}
+    internal var onReadyToCommit: () -> Unit = {}
     fun write(name: String, mime: String, encode: (OutputStream) -> Unit): String {
         checkCancelled()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -27,9 +29,11 @@ internal class ExportPublisher(
             val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             resolver.insert(collection, values)?.let { uri ->
                 try {
+                    onPrepared(uri.toString())
                     val stream = resolver.openOutputStream(uri) ?: error("无法写入相册文件")
                     stream.use(encode)
                     checkCancelled()
+                    onReadyToCommit()
                     values.clear()
                     values.put(MediaStore.Images.Media.IS_PENDING, 0)
                     check(resolver.update(uri, values, null, null) > 0) { "无法完成相册文件" }
@@ -46,8 +50,10 @@ internal class ExportPublisher(
         val destination = File(directory, name)
         val pending = File(directory, "$name.pending")
         try {
+            onPrepared(pending.absolutePath)
             pending.outputStream().use(encode)
             checkCancelled()
+            onReadyToCommit()
             check(pending.renameTo(destination)) { "无法完成相册文件" }
             onCommitted()
             return destination.absolutePath

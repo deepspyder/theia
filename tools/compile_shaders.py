@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from bounded_shaders import WHOLE_KERNELS, write_variant
+from windowed_shaders import write_windowed
 
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
@@ -57,6 +59,7 @@ def main() -> None:
         sys.exit(f"没找到着色器: {SHADER_DIR}")
 
     failed = 0
+    bounded_count = 0
     for shader in shaders:
         spv = out / (shader.stem + ".spv")
         cmd = [glslang, "-V", "--target-env", "vulkan1.0",
@@ -67,10 +70,32 @@ def main() -> None:
         else:
             failed += 1
             print(f"FAIL {shader.name}\n{r.stderr.strip()[:400]}")
+        variant = write_variant(shader, ROOT / ".tmp/generated-bounded-shaders", (SHADER_DIR,))
+        if variant is None and shader.stem not in WHOLE_KERNELS:
+            failed += 1
+            print(f"FAIL {shader.name}: no reviewed bounded indexing contract")
+        if variant:
+            bounded = out / (shader.stem + ".bounded.spv")
+            result = subprocess.run([glslang, "-V", "--target-env", "vulkan1.0", f"-I{SHADER_DIR}",
+                                     "-o", str(bounded), str(variant)], capture_output=True, text=True)
+            if result.returncode:
+                failed += 1
+                print(f"FAIL {bounded.name}\n{result.stderr[:400]}\n{result.stdout[:400]}")
+            else:
+                bounded_count += 1
+        windowed = write_windowed(shader, ROOT / ".tmp/generated-windowed-shaders", (SHADER_DIR,))
+        if windowed:
+            result = subprocess.run([glslang, "-V", "--target-env", "vulkan1.0", f"-I{SHADER_DIR}",
+                                     "-o", str(out / (shader.stem + ".windowed.spv")), str(windowed)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                failed += 1
+                print(f"FAIL {shader.stem}.windowed.spv\n{result.stderr[:400]}\n{result.stdout[:400]}")
 
     if failed:
         sys.exit(f"{failed}/{len(shaders)} 个着色器编译失败")
     print(f"完成：{len(shaders)} 个 SPIR-V -> {out}")
+    print(f"有界调度：{bounded_count} 个独立变体，原始着色器保留。")
 
 
 if __name__ == "__main__":

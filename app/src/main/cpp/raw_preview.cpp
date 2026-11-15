@@ -2,6 +2,8 @@
 #include <jni.h>
 #include <libraw/libraw.h>
 #include "android_raw_decoder.hpp"
+#include "raw_thread_scope.hpp"
+#include "raw_jni_cancellation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,23 +15,7 @@
 namespace {
 constexpr unsigned kMaxPreviewBytes = 16u * 1024u * 1024u;
 
-struct Cancellation {
-    JNIEnv* env;
-    jobject callback;
-    jmethodID method;
-
-    Cancellation(JNIEnv* e, jobject value) : env(e), callback(value), method(nullptr) {
-        if (!value) return;
-        jclass cls = env->GetObjectClass(value);
-        if (cls) {
-            method = env->GetMethodID(cls, "isCancelled", "()Z");
-            env->DeleteLocalRef(cls);
-        }
-    }
-    bool requested() const {
-        return env->ExceptionCheck() || (callback && method && env->CallBooleanMethod(callback, method));
-    }
-};
+using Cancellation = theia::raw::JniCancellation;
 
 int progress(void* value, LibRaw_progress, int, int) {
     return static_cast<Cancellation*>(value)->requested() ? 1 : 0;
@@ -52,6 +38,7 @@ extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_spektralab_android_engine_RawDecoder_nativeCameraPreview(
     JNIEnv* env, jobject, jstring path, jobject callback) {
     try {
+        const theia::raw::ThreadScope threads;
         Cancellation cancelled(env, callback);
         const auto file = path_string(env, path);
         if (cancelled.requested()) { fail(env, "RAW preview cancelled"); return nullptr; }
@@ -95,6 +82,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_com_spektralab_android_engine_RawDecoder_nativeDisplayPreview(
     JNIEnv* env, jobject, jstring path, jint edge, jobject callback) {
     try {
+        const theia::raw::ThreadScope threads;
         if (edge <= 0 || edge > 2048) { fail(env, "Invalid RAW preview size"); return nullptr; }
         Cancellation cancelled(env, callback);
         const auto file = path_string(env, path);

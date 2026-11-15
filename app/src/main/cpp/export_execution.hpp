@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <atomic>
 #include <utility>
+#include "export_realisation.hpp"
 
 namespace theia::export_execution {
 

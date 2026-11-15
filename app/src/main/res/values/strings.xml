@@ -395,4 +395,8 @@
     <string name="halation_headroom">截断高光余量</string>
     <string name="halation_headroom_hint">仅为接近画面峰值的高光补充模拟余量，保留其颜色。0 EV 使用记录值；此项不会恢复原片已丢失的细节。</string>
     <string name="halation_classic_hint">保留旧版光晕计算，已有照片不会自动改变。切换背反射后可调整高光余量。</string>
+    <string name="export_host_channel">照片导出</string>
+    <string name="export_host_title">Theia 正在冲印</string>
+    <string name="export_host_working">保持原始画质处理照片，可返回应用查看进度</string>
+    <string name="export_corrupt_frame">全尺寸渲染结果异常，已停止保存。原片和编辑设置已保留。</string>
 </resources>

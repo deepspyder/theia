@@ -70,6 +70,12 @@ function(theia_android_export_execution engine_dir engine_output pipeline_output
     endif()
     string(REPLACE "#include \"pipeline.hpp\"" "#include \"pipeline.hpp\"\n#include \"export_execution.hpp\"" pipeline_source "${pipeline_source}")
     string(REPLACE "${before_couplers}" "${after_couplers}" pipeline_source "${pipeline_source}")
+    set(before_seed "               ? fresh_seed() : 0x5EEDu;")
+    set(after_seed "               ? (theia::export_execution::realisation.resolved ? theia::export_execution::realisation.film : fresh_seed()) : 0x5EEDu;")
+    theia_f14_replace(pipeline_source "${before_seed}" "${after_seed}" "resolved film realisation")
+    set(before_seed "print_seed_ = (glare.active && glare.percent * glare.amount > 0.0) ? fresh_seed() : 0u;")
+    set(after_seed "print_seed_ = (glare.active && glare.percent * glare.amount > 0.0) ? (theia::export_execution::realisation.resolved ? theia::export_execution::realisation.print : fresh_seed()) : 0u;")
+    theia_f14_replace(pipeline_source "${before_seed}" "${after_seed}" "resolved print realisation")
     # run_film kept its prefix result alive throughout every later stage.
     # Transfer that owner into the chain so finishing the first stage can
     # actually release the input instead of retaining another whole plane.

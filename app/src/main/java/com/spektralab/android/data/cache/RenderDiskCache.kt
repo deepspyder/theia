@@ -11,7 +11,12 @@ import java.util.zip.CRC32
  * cache-admission policy: callers must supply a fully versioned key and use one cache owner per
  * directory. Leased entries cannot be replaced or evicted. Scratch files are never readers.
  */
-internal class RenderDiskCache(private val directory: File, private val maxBytes: Long) {
+internal class RenderDiskCache(
+    private val directory: File,
+    private val maxBytes: Long,
+    private val maxAgeMillis: Long = Long.MAX_VALUE,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
     private val leases = mutableMapOf<String, Int>()
 
     init {
@@ -131,6 +136,9 @@ internal class RenderDiskCache(private val directory: File, private val maxBytes
             .forEach(File::delete)
     }
 
+    @Synchronized
+    fun trimToBudget() { trim(0) }
+
     inner class Lease
     internal constructor(
         private val key: String,
@@ -195,9 +203,11 @@ internal class RenderDiskCache(private val directory: File, private val maxBytes
     private fun trim(additional: Long, except: File? = null): Boolean {
         val files = entries()
         var used = files.sumOf(File::length)
+        val current = now()
         for (file in files.sortedBy(File::lastModified)) {
-            if (used <= maxBytes - additional) break
             if (file == except || leases.getOrDefault(file.nameWithoutExtension, 0) > 0) continue
+            val expired = current >= file.lastModified() && current - file.lastModified() > maxAgeMillis
+            if (!expired && used <= maxBytes - additional) continue
             val length = file.length()
             if (file.delete()) used -= length
         }

@@ -36,6 +36,7 @@ app/src/main/assets/engine/resources/
 
 # Local tooling, crash logs and generated release packages
 /.tmp/
+/tools/__pycache__/
 /hs_err_pid*.log
 /app/release/
 

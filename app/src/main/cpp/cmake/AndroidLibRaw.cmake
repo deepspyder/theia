@@ -26,6 +26,10 @@ add_library(spk_libraw STATIC ${spk_libraw_sources})
 target_include_directories(spk_libraw PUBLIC "${THEIA_LIBRAW_SOURCE}")
 target_compile_definitions(spk_libraw PUBLIC LIBRAW_NODLL)
 target_compile_features(spk_libraw PRIVATE cxx_std_17)
+target_compile_options(spk_libraw PUBLIC -fopenmp)
+# The NDK supplies libomp.a for both shipped ABIs. Embed it once; no extra .so
+# or loader-order dependency, and the final link keeps Android page alignment.
+target_link_options(spk_libraw INTERFACE -fopenmp -static-openmp)
 set_target_properties(spk_libraw PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(spk_libraw PRIVATE -w)
@@ -33,4 +37,4 @@ endif()
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file("${CMAKE_CURRENT_LIST_DIR}/templates/LibRawBuild.hpp.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/theia_libraw_build.hpp" @ONLY)
-message(STATUS "Android LibRaw: ${THEIA_LIBRAW_VERSION} (${THEIA_LIBRAW_COMMIT}); OpenMP disabled")
+message(STATUS "Android LibRaw: ${THEIA_LIBRAW_VERSION} (${THEIA_LIBRAW_COMMIT}); bounded static OpenMP")

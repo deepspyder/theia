@@ -1,7 +1,19 @@
 {
   "date": "2026-11-15",
-  "batch": "CineStill PC同源核对与选择入口对齐：使用DSC_5099.NEF和实际PC 1.3.4-beta.2，在sRGB/ProPhoto两组6064×4040原生整图比较中最大U16差异均为1。修复主动选择胶片沿用旧相纸及重复选择CineStill无法启用背反射；最终15组27条回归通过。原生库/模型数据不变，保留旧记录，仍0.1.6/code7，本地universal包已更新；未提交、推送或发布。任意后期/PC视图工作空间与真机等范围继续保留。",
+  "batch": "RAW窗口化导出与存储专项：继续处理小米17Pro花屏反馈，按binding范围而非只分dispatch；加入逻辑used长度、FIR/几何窗口、完整IIR列打包及分窗最大值归约。128MiB/8MiB限制首先复现归约超限，修复后最终16组25条常规、8组8条受限及1条覆盖安装缓存回收通过，34执行/28去重用例。生产RAW原尺寸增加灾难性黑块/结构校验；成片缓存512→256MiB、7天淘汰、旧安装代际及24小时已知暂存回收。PNG整图像素保持，独立PC两空间最大U16差1。仅模拟器运行；真机、部分跨网格源窗口和全管线显存预算保留，F03/F16不关闭。仍0.1.6/code7。本次代码复核补充IIR按列批量字节传输，保留合法窗口和成片校验；最终交错三轮首次CineStill中位数7.683→9.086秒，缓存0.893→0.913秒，明确存在安全开销；预览和选片采样未见明显退化。按用户要求纳入Git提交推送，不发布Release。",
   "validation": [
+    "提交前复核：分包/依赖、请求冻结、FD归属、取消/晚到消息、发布和缓存清理边界通过审查。将IIR列gather/scatter改为批量GPU字节拷贝，完整递推与32MiB平面预算不变。最终三轮交错原生流程5.376→6.092秒、CineStill首导7.683→9.086秒、缓存0.893→0.913秒；不是零性能开销，临时池frame高水位增加约64MiB，未完成整图显存流式化。报告docs/engineering/export-review-2026-11-15.md。",
+    "最终复核包：0.1.6/code7，58396701字节，SHA256 4fc2a3ac4710916f29edb71f866d1895f4f43a953640548cfc364af0230a5c1e；原证书V1/V2/V3、双ABI六SO至少16KiB LOAD对齐；476生产输入冻结，Release与测试宿主一致。全部引擎资源、共享引擎和LibRaw源保持。完整PNG73495680通道最大差0，原生与真实CineStill TIFF摘要保持。预览3例、选片12次及6项CineStill控制采样，无明显交互退化；仍待小米ARM真机，不发布版本。",
+    "窗口化最终包：16组25条常规、8组8条128MiB硬绑定/8MiB工作窗口和1条覆盖安装回收通过，34执行/28去重用例；另6项Python测试。受限首轮明确复现spk_reduce_max超限后补齐归约，红测保留。完整IIR列顺序和窗口局部地址/绝对种子分离；奇数宽裁切旋转翻转、片边日期与旧路径完整像素一致。报告docs/compatibility/raw-export-windowed-v2-2026-11-15.md，证据.tmp/windowed-export/verification.json。",
+    "窗口化保真：同一DSC_5099.NEF，完整6064×4040 PNG的73495680通道与此前正确成片差0，像素摘要9b93d347330cd72f46bb034981c13908f81ac5e33d2de27f47e283ffb1abe456保持；独立PC sRGB/ProPhoto各73495680个U16 RGB最大差1。原生TIFF 0fb5bfb67c269e4daae37d888971d8d7cf4fab9aabd9b0dfd316a3f41ca56ff0、CineStill TIFF 13ecf2f7c248b4066b6dc37b1728aca5f2e73e894758bee2f345208759cf1a3c保持。50MP JPEG/DNG同批6144×8192通过。",
+    "存储专项：用户确认是应用存储/缓存，不是RAM。成片缓存改256MiB、7天未用淘汰并回收安装代际失效项；同版有效条目与租约保留。实际覆盖安装后旧成片目录197596→24KiB；24小时暂存/分享清理不删除原片、编辑、项目或数据库。256MiB不是应用整体大小上限，大帧超预算只绕过加速缓存。",
+    "窗口化包仍0.1.6/code7，58395683字节，SHA256 a9fa5ef4971de4389e291f64964f1a5b4b42fc766c9c70e0614113adbf94d3be；原证书V1/V2/V3、双ABI六SO至少16KiB LOAD对齐。47窗口寻址变体，97原引擎资源、170共享引擎输入及LibRaw源保持；476生产输入冻结，Release与测试宿主原生和引擎资源相同。日志标识android-export=descriptor-windows-v2。仍待小米17Pro真机，未宣称GPU整图峰值下降或全部跨网格源已分窗。",
+    "原尺寸异常：原片SHA与上轮相同；损坏成片有内容的1273–2766行精确吻合16,776,960像素的调度边界。确认前包漏编CineStill高光、CAM16等11个安全变体；现展开GLSL并识别内联索引，46个帧内核变体齐全。故意移除高光变体时明确拒绝且未发布相册文件，恢复完整包后重验通过。边界吻合与代码缺口不能替代小米真机复测，之前广义保真结论收窄。",
+    "原尺寸修复最终11组18条，恢复完整宿主后3组3条，合计21执行/20去重用例通过。真实CineStill800T/Vision2383开启颗粒光晕，2560及6064×4040 JPEG/PNG外观核对通过；全尺寸与2560独立灰度相关0.999838，用户异常图仅0.065911。独立PC两种空间各73495680个U16 RGB通道最大差1；CineStill全尺寸TIFF摘要13ecf2f7c248b4066b6dc37b1728aca5f2e73e894758bee2f345208759cf1a3c保持。报告raw-full-size-corruption-2026-11-15.md，证据.tmp/full-size-corruption/verification.json。",
+    "原尺寸修复包仍0.1.6/code7，58172903字节、SHA256 9fee0d844ae08ee62c481bfd1b2d12f32a69d79f94ed79975113d6f2a349652f；原证书V1/V2/V3，双ABI六份SO均至少16KiB LOAD对齐。97份原引擎资源、170项共享引擎源码及LibRaw源保持；46安全变体存在，四项Python测试及全内核数学表达式不变检查通过。安装宿主使用同一Release原生库；待小米17Pro复测，未宣称完整GPU窗口、显存峰值或真机驱动验收完成。",
+    "Windows风格导出最终：20组31条整轮、8组15条受影响路径复测和3条实际应用24MP原尺寸JPEG/PNG/TIFF全部通过；49条执行记录去重35用例。50MP真实JPEG与DNG在同批保存6144×8192，输出JPEG头独立核对；worker死亡/取消/晚到回包FD清理/后台息屏/设备释放确认/发布恢复通过。证据.tmp/windows-export/verification.json与windows-export-execution.md。仅API37 x86_64运行，未冒充ARM设备丢失复现。",
+    "Windows风格导出交错计时：E1绿版与最终版各三次，6064×4040原生RAW→镜头→渲染→TIFF16流程中位数6914.80→5655.92ms（缩短18.21%），解码2328.24→1342.21ms，镜头1660.42→532.17ms；渲染1065.57→1630.11ms，编码598.19→688.44ms。两端基准同样关闭随机效果、无缓存；正式效果由独立U16回归覆盖，不是应用端到端冷导出或手机速度承诺。六份完整TIFF同为0fb5bfb67c269e4daae37d888971d8d7cf4fab9aabd9b0dfd316a3f41ca56ff0；临时池高水位均1175931252字节，未降低整图GPU峰值。",
+    "Windows风格导出构建保持0.1.6/code7，最终Release 58111085字节、SHA256 3292f557c98bfa34fb555d6f35a9c770d6d12db1622b5dd21cf265c72ef27408；原证书V1/V2/V3、双ABI与六份SO至少16KiB LOAD对齐通过。102份原资源、170份共享引擎输入和LibRaw源保持，35份有界shader存在；宿主与Release六份原生库相同，404项生产输入最终无漂移。F03/F16未关闭；ARM真机、跨节点显存预算、阶段缓存、全host迁移及完整中断矩阵保留。",
     "PC对照：实际运行包为1.3.4-beta.2、commit 2ca735ad60a998e925bf346f57d80012bdb5c6bf；用户NEF、PC记录所指原片及模拟器输入SHA相同。正式PC独立host与Android实际Release原生库分别解码/显影，sRGB和ProPhoto两组完整6064×4040 U16每组比较73495680个RGB通道，最大差异均1，平均0.00217145/0.00131406。两端明确关闭随机颗粒/眩光；独立重建参考再次通过。非任意UI/后期相等结论。",
     "胶片选择红绿回归：修复前CineStill预期Vision2383却保留PortraEndura，失败证据保留；现主动选片优先声明目标相纸、同款重选CineStill能显式启用模型2，标准组合重复点击无变化。恢复旧照片/预设不自动改历史相纸或模型，高光余量与手工后期偏好保留。",
     "最终15组27条通过，另有两种空间独立原生整图对照；覆盖材料选择/原图交互/CineStill模型及UI/24MP导出/6类调参计时/32组材料/编辑中断/cache/观景台/真实RAW/项目恢复/色轮/通道混合。证据.tmp/pc-parity/verification.json；报告docs/compatibility/pc-cinestill-parity.md。",
@@ -275,10 +287,13 @@
         "F03第五批将负片所有权转移给冲印阶段链，24MP默认效果临时池峰值降约280MiB（20%）；84场景Float、4处内部取消、36组U16与完整应用RAW摘要保持，剩余峰值转移到胶片光晕。",
         "F03第六批光晕输入转移与私有累加器复用，190场景混合及120场景光晕Float逐位保持，增加分量间取消。24MP光晕阶段累计临时高水位降约280MiB，但全程仍1121.5MiB，峰值移到DIR扩散。",
         "F03第七批测光及前处理后退休源图，保留共享缓冲；24MP的DIR阶段持久缓冲减少约299.9MiB，临时池峰值保持。120场景Float、38组U16、内部取消及完整应用RAW摘要通过，IIR有界执行待完成。",
-        "应用显示后期补充专项：精确融合原生ARGB及直方图、有界单额外工作线程、工作台缩略图合并完成。52组同输入摘要与24MP完整16位TIFF保持；仅验收模拟器，未关闭IIR、50MP、驱动/进程容量及ARM真机等原剩余项。"
+        "应用显示后期补充专项：精确融合原生ARGB及直方图、有界单额外工作线程、工作台缩略图合并完成。52组同输入摘要与24MP完整16位TIFF保持；仅验收模拟器，未关闭IIR、50MP、驱动/进程容量及ARM真机等原剩余项。",
+        "2026-11-15 新增最多4线程的 LibRaw/镜头校正，35个有界 Vulkan 提交变体；IIR 每条线仍保留完整双向递推。PNG/TIFF 按行，API30+ JPEG 使用系统编码器和匿名文件后备像素。首轮逐位对照通过，整图 GPU 峰值下降尚未证明；详见 windows-export-execution.md。",
+        "2026-11-15 窗口化v2：显式binding步长、offset/range与逻辑used，完整IIR列打包、FIR/几何源范围和分窗最大值归约；受限128MiB/8MiB整图及旧像素对照通过，部分跨网格只读源仍整幅，未降低全管线GPU峰值。"
       ],
       "remaining": [
-        "逐阶段活跃区间测量；全局归约、卷积/IIR/颗粒分块等价性；24MP/50MP 真机验证"
+        "逐阶段活跃区间测量；全局归约、卷积/IIR/颗粒分块等价性；24MP/50MP 真机验证",
+        "部分片边/proof/双图的跨网格源仍按设备合法范围整幅读取；需补齐源窗口、真实ARM设备/温控及跨节点流式预算，不以模拟器或绑定分段代替全局显存验收。"
       ],
       "sources": [
         "app/src/main/cpp/cmake/AndroidExportExecution.cmake",
@@ -306,7 +321,23 @@
         "docs/features/f03-batch-06-halation-mixture.md",
         "docs/features/f03-batch-07-film-source.md",
         "app/src/main/java/com/spektralab/android/engine/DisplayStripRenderer.kt",
-        "docs/performance/render-library-performance-2026-11-14.md"
+        "docs/performance/render-library-performance-2026-11-14.md",
+        "app/src/main/cpp/raw_thread_scope.hpp",
+        "app/src/main/cpp/raw_jni_cancellation.hpp",
+        "app/src/main/cpp/cmake/AndroidBoundedDispatch.cmake",
+        "app/src/main/cpp/jpeg_encode.cpp",
+        "app/src/main/java/com/spektralab/android/data/export/PngRowWriter.kt",
+        "app/src/main/java/com/spektralab/android/data/export/JpegRowWriter.kt",
+        "app/src/androidTest/java/com/spektralab/android/BoundedExportAudit.kt",
+        "docs/engineering/windows-export-execution.md",
+        "app/src/main/cpp/windows/window_plan.hpp",
+        "app/src/main/cpp/windows/WindowedDispatch.cpp.in",
+        "app/src/main/cpp/windows/WindowedIir.cpp.in",
+        "app/src/main/cpp/windows/WindowedReduction.cpp.in",
+        "app/src/main/cpp/shaders/vulkan/spk_window_copy.comp",
+        "tools/windowed_shaders.py",
+        "tools/test_windowed_shaders.py",
+        "docs/compatibility/raw-export-windowed-v2-2026-11-15.md"
       ]
     },
     {
@@ -565,12 +596,32 @@
     {
       "id": "F16",
       "name": "导出恢复与后台执行",
-      "status": "pending",
-      "evidence": [],
-      "remaining": [
-        "持久任务/提交身份；pending URI 重核对；平台宿主；取消/重启去重"
+      "status": "in_progress",
+      "evidence": [
+        "首轮已接入真实单张/批量：ExportFrameRequest、ExportCoordinator、原子任务/发布凭据日志、独立 :render host、只读描述符、取消/死亡、前台/CPU租约、恢复预览前设备释放确认。pending 与已提交凭据恢复、源变化拒绝提交等审计通过；不是完整任务重启续跑或全部导出入口迁移完成。",
+        "2026-11-15 生产RAW原尺寸同冻结参数小图结构参考与异常结果拦截；256MiB/7天成片缓存、安装代际、24小时已知暂存回收，租约和原片/编辑/项目保护通过。只读签名不进入输出像素；真机和完整中断矩阵仍待。"
       ],
-      "sources": []
+      "remaining": [
+        "主进程退出/满盘/发布每个中断点与恢复UI；持久任务安全重启、去重和云端异常边界。",
+        "将预览、观景台合成、DI及后期/编码完整统一到host，补真实ARM后台/锁屏与进程死亡验收。"
+      ],
+      "sources": [
+        "app/src/main/java/com/spektralab/android/core/model/ExportFrameRequest.kt",
+        "app/src/main/java/com/spektralab/android/data/export/ExportCoordinator.kt",
+        "app/src/main/java/com/spektralab/android/data/export/ExportJobStore.kt",
+        "app/src/main/java/com/spektralab/android/engine/host/RenderHostService.kt",
+        "app/src/main/java/com/spektralab/android/engine/host/RenderHostLease.kt",
+        "app/src/main/java/com/spektralab/android/engine/host/NativeSessionOwner.kt",
+        "app/src/androidTest/java/com/spektralab/android/RenderHostAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/ExportLifecycleAudit.kt",
+        "docs/engineering/windows-export-execution.md",
+        "app/src/main/java/com/spektralab/android/engine/host/RenderAppearance.kt",
+        "app/src/main/java/com/spektralab/android/data/cache/CacheGeneration.kt",
+        "app/src/main/java/com/spektralab/android/data/cache/CacheMaintenance.kt",
+        "app/src/androidTest/java/com/spektralab/android/RenderAppearanceAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/CacheMaintenanceAudit.kt",
+        "docs/compatibility/raw-export-windowed-v2-2026-11-15.md"
+      ]
     },
     {
       "id": "F17",
@@ -622,6 +673,8 @@
     }
   ],
   "next": [
+    "先在小米17Pro核对descriptor-windows-v2同原片、同CineStill参数及驱动/耗时；模拟器128MiB/8MiB已通过，不能代替真机验收。",
+    "继续F03/F16的跨网格源窗口、跨节点/整帧预算、ARM连续负载；保留全host入口、源/负片/扫描阶段缓存、精确suspend/resume和完整故障矩阵。",
     "PC一致性后续优先核对F17工作空间、非中性后期及完整预览/输出表面；本轮只验收CineStill默认原生链路与选择入口，不扩大为全部PC功能移植完成。",
     "按用户本轮优先级完成F14模型代码与模拟器核对，再补ARM实机、真实夜景及持续性能验收；F14保留进行中，不把高光模拟补偿当成F19 HDR。",
     "本次优先F14之后，原排期的下个独立功能F10半格双图项目：两孔位独立源图、曝光/构图/白平衡与共用look，日期/片边/输出和缺源处理按同一图像合同开发。F09高像素/增量编码及真机等剩余项继续保留。",

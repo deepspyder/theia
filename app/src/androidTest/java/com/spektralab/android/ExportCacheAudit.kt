@@ -183,16 +183,17 @@ internal class ExportCacheAudit(private val test: Instrumentation) {
 
             val beforeRandom = vm.exportCacheStats
             test.runOnMainSync { vm.params.grainActive = true }
-            export()
+            val stochastic = export()
+            val stochasticWarm = export()
             check(
-                vm.exportCacheStats.bypasses == beforeRandom.bypasses + 1 &&
-                    vm.exportCacheStats.hits == beforeRandom.hits
+                vm.exportCacheStats.writes == beforeRandom.writes + 1 &&
+                    vm.exportCacheStats.hits == beforeRandom.hits + 1 && stochastic.contentEquals(stochasticWarm)
             )
             val bypass =
                 cache.prepare(Uri.parse("content://cloud.example/photo"), params, options) {}
             check(bypass == null) { "A cloud source was fetched just to create cache identity" }
             check(vm.renderTaskState.let { it.active == null && it.waiting.isEmpty() })
-            return "Real TIFF miss/write/hit exact; JPEG/PNG/batch reuse; corrupt cache recomputed; source/parameters invalidate; stochastic/cloud bypass; cold_ms=$coldMs warm_ms=$warmMs; stats=${vm.exportCacheStats}"
+            return "Real TIFF miss/write/hit exact; JPEG/PNG/batch reuse; corrupt cache recomputed; source/parameters invalidate; resolved stochastic bytes exact on cache hit; unresolved/cloud bypass; cold_ms=$coldMs warm_ms=$warmMs; stats=${vm.exportCacheStats}"
         } finally {
             (media() - before).forEach {
                 resolver.delete(

@@ -8,6 +8,7 @@ import android.system.OsConstants
 import com.spektralab.android.core.model.EditSnapshot
 import com.spektralab.android.core.model.EditorParams
 import com.spektralab.android.core.model.ExportOptions
+import com.spektralab.android.core.model.ExportRealisation
 import com.spektralab.android.core.model.RenderCacheIdentity
 import com.spektralab.android.engine.RawDecoder
 import com.spektralab.android.engine.EngineClient
@@ -17,7 +18,7 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * Cache only proven deterministic requests. Default stochastic effects always keep the old path.
+ * Cache only proven requests. Interactive callers without a resolved random identity still bypass.
  */
 internal class ExportRenderCache private constructor(private val context: Context) {
     data class Request(val key: String, val sourceHash: String)
@@ -30,7 +31,9 @@ internal class ExportRenderCache private constructor(private val context: Contex
     )
 
     private val directory = File(context.cacheDir, "export-rgba16-v1")
-    private val disk by lazy { RenderDiskCache(directory, MAX_BYTES) }
+    private val disk by lazy { RenderDiskCache(directory, MAX_BYTES, MAX_AGE_MILLIS) }
+    private val buildStamp by lazy { buildIdentity() }
+    private val generation by lazy { CacheGeneration(File(directory, "build-generation")) }
     @Volatile private var resourceHash: String? = null
     @Volatile
     var stats = Stats()
@@ -38,18 +41,32 @@ internal class ExportRenderCache private constructor(private val context: Contex
 
     private fun updateStats(change: (Stats) -> Stats) = synchronized(this) { stats = change(stats) }
 
+    /** Disposable rendered pixels only; does not read or delete edits or originals. */
+    fun maintain() {
+        ensureGeneration()
+        disk.trimToBudget()
+    }
+
+    private fun ensureGeneration() { generation.ensure(buildStamp) { disk.clear() } }
+
+    /** Removes only unleased, regenerable rendered frames; originals and edits live elsewhere. */
+    fun clearDisposable() { disk.clear() }
+
     fun prepare(
         uri: Uri,
         params: EditorParams,
         options: ExportOptions,
         cancel: () -> Unit,
-    ): Request? {
-        // No public explicit stochastic render seed in this engine. Do not change its RNG contract.
-        // Date backs with auto text and overscan exposure also remain outside this first admission
-        // scope.
+    ): Request? = prepareInternal(uri, params, options, null, cancel)
+
+    fun prepareResolved(uri: Uri, params: EditorParams, options: ExportOptions,
+                        realisation: ExportRealisation, cancel: () -> Unit): Request? =
+        prepareInternal(uri, params, options, realisation, cancel)
+
+    private fun prepareInternal(uri: Uri, params: EditorParams, options: ExportOptions,
+                                realisation: ExportRealisation?, cancel: () -> Unit): Request? {
         if (
-            params.grainActive ||
-                params.glareActive ||
+            ((params.grainActive || params.glareActive) && realisation == null) ||
                 params.dateImprintActive ||
                 params.overscanActive
         ) {
@@ -62,6 +79,7 @@ internal class ExportRenderCache private constructor(private val context: Contex
             return null // do not start an extra cloud/pipe fetch just to probe cache eligibility
         }
         return safe {
+            ensureGeneration()
             val source = fingerprint(uri, cancel) ?: return@safe null
             val resources =
                 resourceHash
@@ -72,14 +90,14 @@ internal class ExportRenderCache private constructor(private val context: Contex
                 RenderCacheIdentity(
                         source,
                         RawDecoder.decoderIdentity,
-                        "$build|${buildIdentity()}",
+                        "$build|$buildStamp",
                         resources,
                         0,
                         0,
                         "decoded-by-source-v1",
                         options.outputColorSpace,
                         options.correctLens,
-                        0L,
+                        if (params.grainActive || params.glareActive) realisation?.cacheSeed ?: 0L else 0L,
                         EditSnapshot.capture(params),
                         options.resolution,
                     )
@@ -220,7 +238,8 @@ internal class ExportRenderCache private constructor(private val context: Contex
     private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
 
     companion object {
-        private const val MAX_BYTES = 512L * 1024 * 1024
+        private const val MAX_BYTES = 256L * 1024 * 1024
+        private const val MAX_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000
         private const val RESERVE_BYTES = 256L * 1024 * 1024
         @Volatile private var instance: ExportRenderCache? = null
 

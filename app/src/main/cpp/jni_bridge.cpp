@@ -15,6 +15,7 @@
 #include <android/bitmap.h>
 #include "native_pixels.hpp"
 #include "export_execution.hpp"
+#include "bounded_dispatch_stats.hpp"
 #include "export_fir_bands.hpp"
 
 #include <cstdint>
@@ -309,10 +310,16 @@ JNIEXPORT jobject JNICALL
 Java_com_spektralab_android_engine_EngineClient_nativeRenderExportOnce(
     JNIEnv* env, jobject object, jlong enginePtr, jlong sessionPtr) {
     theia::export_execution::Scope execution;
+    theia::export_execution::dispatch_stats = {};
     theia::export_execution::fir_bands = {};
     jobject result = Java_com_spektralab_android_engine_EngineClient_nativeRenderForExport(
         env, object, enginePtr, sessionPtr);
     const auto bands = theia::export_execution::fir_bands;
+    const auto dispatches = theia::export_execution::dispatch_stats;
+    __android_log_print(ANDROID_LOG_INFO, "SpkExport", "bounded_dispatch kernels=%zu submissions=%zu largest_invocations=%zu",
+        dispatches.kernels, dispatches.submissions, dispatches.largest_invocations);
+    __android_log_print(ANDROID_LOG_INFO, "SpkExport", "windowed_dispatch largest_binding_bytes=%zu packed_column_batches=%zu windowed_reductions=%zu",
+        dispatches.largest_binding_bytes, dispatches.packed_column_batches, dispatches.windowed_reductions);
     __android_log_print(ANDROID_LOG_INFO, "SpkExport",
         "fir_bands calls=%zu bands=%zu largest_work_bytes=%zu",
         bands.calls, bands.bands, bands.largest_work_bytes);
@@ -324,6 +331,17 @@ Java_com_spektralab_android_engine_EngineClient_nativeRenderExportOnce(
         if (progress) spk_string_free(progress);
     }
     return result;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_spektralab_android_engine_EngineClient_nativeRenderExportResolved(
+    JNIEnv* env, jobject object, jlong enginePtr, jlong sessionPtr, jlong filmSeed, jlong printSeed) {
+    if (filmSeed < 0 || filmSeed > 0xffffffffLL || printSeed < 0 || printSeed > 0xffffffffLL) {
+        env->ThrowNew(env->FindClass(kSpkExceptionClass), "Invalid export random identity");
+        return nullptr;
+    }
+    const theia::export_execution::RealisationScope identity{uint32_t(filmSeed), uint32_t(printSeed)};
+    return Java_com_spektralab_android_engine_EngineClient_nativeRenderExportOnce(env, object, enginePtr, sessionPtr);
 }
 
 JNIEXPORT void JNICALL

@@ -3,7 +3,7 @@
  *  与 SpektraLab-Windows 的 spk::io::decode_raw_compatible 对齐的简化版：
  *    - output_color=4（ProPhoto RGB）、gamm=(1,1)（线性）、output_bps=16
  *    - user_qual=3（AHD 去马赛克）、use_camera_wb=1（相机/as-shot 白平衡）
- *    - 不启用 OpenMP（Android NDK 无 libomp），单线程解码
+ *    - NDK 静态 OpenMP，有界四线程，保持 AHD 与原始计算精度
  *    - 返回线性 ProPhoto 的 float RGB（0..1，已应用相机白平衡）+ 元数据
  *
  *  Android 内容提供者（content://）不是文件系统路径，Kotlin 侧先把它拷到
@@ -17,6 +17,8 @@
 #include "native_pixels.hpp"
 #include "android_raw_decoder.hpp"
 #include "theia_libraw_build.hpp"
+#include "raw_thread_scope.hpp"
+#include "raw_jni_cancellation.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -55,6 +57,7 @@ struct LensCorrection {
 bool apply_lens_correction(std::vector<float>& rgb, std::uint32_t w, std::uint32_t h,
                            const LensCorrection& lc, std::string& error) {
     (void) error;
+    const theia::raw::ThreadScope threads;
     if (w < 8 || h < 8 || rgb.size() != std::size_t(w) * h * 3) return false;
     const double cx = (w - 1) * 0.5, cy = (h - 1) * 0.5;
     const double half_diag = std::hypot(cx, cy);   // 角落半径（像素），暗角 r=1
@@ -62,6 +65,7 @@ bool apply_lens_correction(std::vector<float>& rgb, std::uint32_t w, std::uint32
     // 1. 暗角纠正：gain = 1 / (1 + k1*r^2 + k2*r^4 + k3*r^6)
     if (lc.vig_k[0] != 0 || lc.vig_k[1] != 0 || lc.vig_k[2] != 0) {
         const double k1 = lc.vig_k[0], k2 = lc.vig_k[1], k3 = lc.vig_k[2];
+        #pragma omp parallel for schedule(static) if(w * std::uint64_t(h) >= 262144)
         for (std::uint32_t y = 0; y < h; ++y) {
             const double dy = (y - cy) / half_diag;
             for (std::uint32_t x = 0; x < w; ++x) {
@@ -96,6 +100,7 @@ bool apply_lens_correction(std::vector<float>& rgb, std::uint32_t w, std::uint32
         }
     };
 
+    #pragma omp parallel for schedule(static) if(w * std::uint64_t(h) >= 262144)
     for (std::uint32_t y = 0; y < h; ++y) {
         for (std::uint32_t x = 0; x < w; ++x) {
             const double dx = (x - cx) * rscale, dy = (y - cy) * rscale;
@@ -152,25 +157,7 @@ void log_raw_data_warnings(LibRaw& raw) {
          raw.imgdata.process_warnings);
 }
 
-struct RawCancellation {
-    JNIEnv* env;
-    jobject callback;
-    jmethodID method = nullptr;
-
-    RawCancellation(JNIEnv* environment, jobject value) : env(environment), callback(value) {
-        if (!callback) return;
-        jclass type = env->GetObjectClass(callback);
-        if (type) {
-            method = env->GetMethodID(type, "isCancelled", "()Z");
-            env->DeleteLocalRef(type);
-        }
-    }
-
-    bool requested() const {
-        return env->ExceptionCheck() ||
-               (callback && method && env->CallBooleanMethod(callback, method) == JNI_TRUE);
-    }
-};
+using RawCancellation = theia::raw::JniCancellation;
 
 int check_raw_progress(void* context, enum LibRaw_progress, int, int) {
     return static_cast<const RawCancellation*>(context)->requested() ? 1 : 0;
@@ -180,12 +167,13 @@ bool decode_raw(const std::string& path, bool half_size, const float* user_mul,
                 DecodedRaw& out, std::string& error, int max_long_edge = 0,
                 const RawCancellation* cancellation = nullptr) {
     try {
+        const theia::raw::ThreadScope threads;
         if (cancellation && cancellation->requested()) {
             error = "RAW decode cancelled";
             return false;
         }
         theia::raw::Decoder raw([&] { return cancellation && cancellation->requested(); });
-        if (cancellation && cancellation->callback) {
+        if (cancellation) {
             raw.set_progress_handler(check_raw_progress, const_cast<RawCancellation*>(cancellation));
         }
         libraw_output_params_t& p = raw.imgdata.params;

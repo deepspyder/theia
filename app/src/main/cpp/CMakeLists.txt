@@ -20,6 +20,7 @@ set(SPK_INCLUDE_DIRS ${SPEKTRA_ENGINE_DIR}/include)
 set(SPK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/jni_bridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/curve_grade.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/jpeg_encode.cpp
 )
 set_source_files_properties(curve_grade.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 
@@ -162,17 +163,12 @@ target_compile_features(spektralab PRIVATE cxx_std_20)
 target_include_directories(spektralab PRIVATE ${SPK_INCLUDE_DIRS})
 
 find_library(log-lib log)
+find_library(dl-lib dl)
 
-target_link_libraries(spektralab ${log-lib} jnigraphics)
+target_link_libraries(spektralab ${log-lib} jnigraphics ${dl-lib})
 if(NOT SPEKTRA_USE_STUB_ENGINE)
     target_link_libraries(spektralab spk_volk)
     if(SPEKTRALAB_RAW_AVAILABLE)
         target_link_libraries(spektralab spk_libraw)
-    endif()
-    # dlopen 用于 volk 加载 libvulkan；Android (bionic) 的 dl* 在 libc 里，
-    # 显式链接 dl 是为了与 Linux 一致、且无副作用。
-    find_library(dl-lib dl)
-    if(dl-lib)
-        target_link_libraries(spektralab ${dl-lib})
     endif()
 endif()

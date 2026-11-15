@@ -1,0 +1,17 @@
+package com.spektralab.android.engine.host
+
+internal object RenderHostProtocol {
+    const val START = 1
+    const val CANCEL = 2
+    const val STARTED = 3
+    const val PROGRESS = 4
+    const val COMPLETE = 5
+    const val FAILED = 6
+    const val ABORTING = 7
+    const val RELEASE_DEVICE = 8
+    const val DEVICE_RELEASING = 9
+    const val DEVICE_RELEASED = 10
+    const val JOB = "job"
+    const val REQUEST = "request"
+    const val DESCRIPTOR = "descriptor"
+}

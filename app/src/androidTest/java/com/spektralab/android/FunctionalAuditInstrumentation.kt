@@ -194,6 +194,13 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         tableAppearanceOnly = audit == "table-appearance"
         pcParityOnly = audit == "pc-parity"
         pcSelectionOnly = audit == "pc-selection"
+        windowsExportRecoveryOnly = audit == "windows-export-recovery"
+        renderHostOnly = audit == "render-host"
+        boundedExportOnly = audit == "bounded-export"
+        fullCineStillOnly = audit == "full-cinestill"
+        cacheMaintenanceOnly = audit == "cache-maintenance"
+        appearanceOnly = audit == "export-appearance"
+        exportLifecycleOnly = audit == "export-lifecycle"
         changedParamsOnly = audit == "changed-params"
         curveLayoutOnly = audit == "curve-layout"
         editingBoundariesOnly = audit == "editing-boundaries"
@@ -243,9 +250,65 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var reviewImageSample = 16
     private var pcParityOnly = false
     private var pcSelectionOnly = false
+    private var windowsExportRecoveryOnly = false
+    private var renderHostOnly = false
+    private var boundedExportOnly = false
+    private var fullCineStillOnly = false
+    private var cacheMaintenanceOnly = false
+    private var appearanceOnly = false
+    private var exportLifecycleOnly = false
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        if (appearanceOnly) {
+            case("export.catastrophic_frame_detection") { RenderAppearanceAudit.run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (cacheMaintenanceOnly) {
+            case("cache.storage_budget_and_safe_cleanup") { CacheMaintenanceAudit.run(output) }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (fullCineStillOnly) {
+            case("export.cinestill_full_size_appearance") { FullSizeCineStillAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (exportLifecycleOnly) {
+            case("export.publication_recovery") { ExportLifecycleAudit(this).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (boundedExportOnly) {
+            case("export.bounded_dispatch_pixel_parity") { BoundedExportAudit(this).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (renderHostOnly) {
+            case("export.isolated_render_host") { RenderHostAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (windowsExportRecoveryOnly) {
+            case("export.device_loss_recovery") { WindowsExportRecoveryAudit(this).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         if (pcParityOnly || pcSelectionOnly) {
             if (pcParityOnly) case("image.pc_reference_capture") { PcPipelineParityAudit(this, output).capture() }
             else case("film.pc_material_selection") { PcPipelineParityAudit(this, output).selection() }
@@ -1196,6 +1259,18 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         context.assets.open("13mb.jpg").use { input -> jpeg.outputStream().use { input.copyTo(it) } }
         context.assets.open("xiaomi-dng.tiff").use { input -> raw.outputStream().use { input.copyTo(it) } }
         val uris = listOf(Uri.fromFile(jpeg), Uri.fromFile(raw))
+        val jpegBounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(jpeg.path, jpegBounds)
+        val orientation = ExifInterface(jpeg).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)
+        val swapped = orientation in setOf(5, 6, 7, 8)
+        val expectedJpeg = if (swapped) jpegBounds.outHeight to jpegBounds.outWidth else jpegBounds.outWidth to jpegBounds.outHeight
+        val expectedRaw = RawDecoder.decodeForExport(targetContext, Uri.fromFile(raw), 0).use { it.width to it.height }
+        fun mediaIds(): Set<Long> = buildSet {
+            targetContext.contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media._ID), null, null, null)?.use { cursor ->
+                while (cursor.moveToNext()) add(cursor.getLong(0))
+            }
+        }
         uris.forEach { EditStore.save(targetContext.applicationContext, it, EditorParams()) }
         runOnMainSync {
             vm.dismissError()
@@ -1205,8 +1280,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         }
         await(240000) { vm.errorMessage != null || vm.lastResult != null && !vm.busy }
         check(vm.errorMessage == null) { "JPEG preview import failed: ${vm.errorMessage}" }
-        val countBefore = targetContext.contentResolver.query(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            arrayOf(android.provider.MediaStore.Images.Media._ID), null, null, null)?.use { it.count } ?: 0
+        val idsBefore = mediaIds()
         runOnMainSync { vm.batchExport() }
         await(600000) { !vm.isBatchExporting }
         val error = vm.errorMessage
@@ -1214,10 +1288,18 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         runOnMainSync { activity.finish() }
         check(error == null) { "full-resolution asset batch failed: $error; log=$log" }
         check(log.contains("批量导出 2/2")) { "both asset outputs were not reported: $log" }
-        val countAfter = targetContext.contentResolver.query(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            arrayOf(android.provider.MediaStore.Images.Media._ID), null, null, null)?.use { it.count } ?: 0
-        check(countAfter >= countBefore + 2) { "asset batch did not save two gallery outputs ($countBefore -> $countAfter)" }
-        return "8192x6144 JPEG and 50MP DNG TIFF both exported at original resolution in one batch on ${android.os.Build.MODEL}; log=$log"
+        val added = mediaIds() - idsBefore
+        check(added.size == 2) { "asset batch did not save exactly two gallery outputs: $added" }
+        val actual = added.map { id ->
+            val destination = android.content.ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            targetContext.contentResolver.openInputStream(destination).use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+            bounds.outWidth to bounds.outHeight
+        }
+        check(actual.sortedBy { it.toString() } == listOf(expectedJpeg, expectedRaw).sortedBy { it.toString() }) {
+            "Full-size output changed dimensions: $actual vs $expectedJpeg/$expectedRaw"
+        }
+        return "$expectedJpeg JPEG and $expectedRaw DNG both verified from saved JPEG headers at original dimensions in one batch on ${android.os.Build.MODEL}; log=$log"
     }
 
     private fun nativeExportParityAudit(): String {

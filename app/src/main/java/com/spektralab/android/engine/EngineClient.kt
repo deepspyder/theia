@@ -24,22 +24,40 @@ import org.json.JSONObject
  */
 class EngineClient private constructor(
     private var enginePtr: Long,
+    private val resourcesDir: String,
 ) : Closeable {
 
     private var sessionPtr: Long = 0L
     // cancel() is the only JNI session call made from outside the serialized engine dispatcher.
     private val sessionLifetime = ReentrantReadWriteLock(true)
 
+    @Volatile
+    var isDeviceLost: Boolean = false
+        private set
+
+    @Volatile
+    var deviceGeneration: Long = 1L
+        private set
+
+    private var closed = false
+
+    /** Called on the serialized engine owner; progress/cancel only observe the latch. */
+    internal fun recordFailure(error: Throwable) {
+        if (EngineFailure.isDeviceLost(error)) isDeviceLost = true
+    }
+
     // ---- 引擎自省 ---------------------------------------------------------
 
-    fun capabilities(): String = nativeCapabilities(enginePtr)
-    fun paramsSchema(): String = nativeParamsSchema(enginePtr)
-    fun memoryReport(): String = nativeMemoryReport(enginePtr)
-    fun printLutCatalog(): String = nativePrintLutCatalog(enginePtr)
-    fun lastError(): String = nativeLastError(enginePtr)
+    fun capabilities(): String = withEngine { nativeCapabilities(enginePtr) }
+    fun paramsSchema(): String = withEngine { nativeParamsSchema(enginePtr) }
+    fun memoryReport(): String = if (isDeviceLost) {
+        "{\"device_lost\":true,\"device_generation\":$deviceGeneration}"
+    } else withEngine { nativeMemoryReport(enginePtr) }
+    fun printLutCatalog(): String = withEngine { nativePrintLutCatalog(enginePtr) }
+    fun lastError(): String = if (isDeviceLost) "VK_ERROR_DEVICE_LOST" else withEngine { nativeLastError(enginePtr) }
 
     fun warmUp(filmStock: String, printStock: String): String =
-        nativeWarmUp(enginePtr, filmStock, printStock)
+        withEngine { nativeWarmUp(enginePtr, filmStock, printStock) }
 
     // ---- 会话 -------------------------------------------------------------
 
@@ -48,25 +66,23 @@ class EngineClient private constructor(
      * 已有会话时自动释放。
      */
     fun open(data: FloatArray, width: Int, height: Int, channels: Int, paramsJson: String? = null): Long {
-        check(enginePtr != 0L) { "engine not created" }
-        closeSession()
-        val opened = nativeOpen(enginePtr, data, width, height, channels, paramsJson)
+        prepareOpen()
+        val opened = withEngine { nativeOpen(enginePtr, data, width, height, channels, paramsJson) }
         sessionLifetime.write { sessionPtr = opened }
         return sessionPtr
     }
 
     fun openBitmap(bitmap: Bitmap, paramsJson: String): Long {
-        check(enginePtr != 0L)
-        closeSession()
-        val opened = nativeOpenBitmap(enginePtr, bitmap, paramsJson)
+        prepareOpen()
+        val opened = withEngine { nativeOpenBitmap(enginePtr, bitmap, paramsJson) }
         sessionLifetime.write { sessionPtr = opened }
         return sessionPtr
     }
 
     fun openRaw(image: NativeRawImage, paramsJson: String): Long {
-        check(enginePtr != 0L && image.handle != 0L)
-        closeSession()
-        val opened = nativeOpenRaw(enginePtr, image.handle, paramsJson)
+        check(image.handle != 0L) { "RAW image closed" }
+        prepareOpen()
+        val opened = withEngine { nativeOpenRaw(enginePtr, image.handle, paramsJson) }
         sessionLifetime.write { sessionPtr = opened }
         return sessionPtr
     }
@@ -82,6 +98,12 @@ class EngineClient private constructor(
         }
     }
 
+    internal fun renderExportResolved(filmSeed: Long, printSeed: Long): NativeRenderResult {
+        try {
+            return requireSession { nativeRenderExportResolved(enginePtr, sessionPtr, filmSeed, printSeed) }
+        } finally { closeSession() }
+    }
+
     fun closeSession() {
         sessionLifetime.write {
             releaseSessionLocked()
@@ -94,6 +116,32 @@ class EngineClient private constructor(
             sessionPtr = 0L
             nativeSessionRelease(session)
         }
+    }
+
+    /** Explicit source binding is the only recovery boundary; never retry an in-flight render. */
+    private fun prepareOpen() = sessionLifetime.write {
+        check(!closed) { "engine closed" }
+        releaseSessionLocked()
+        if (isDeviceLost || enginePtr == 0L) {
+            val previous = enginePtr
+            enginePtr = 0L
+            if (previous != 0L) nativeEngineDestroy(previous)
+            val recreated = nativeEngineCreate(resourcesDir)
+            check(recreated != 0L) { "spk_engine_create failed during device recovery" }
+            enginePtr = recreated
+            deviceGeneration++
+            isDeviceLost = false
+        }
+        check(enginePtr != 0L) { "engine not created" }
+    }
+
+    /** Release every GPU allocation before handing ownership to the isolated export host. */
+    internal fun park() = sessionLifetime.write {
+        check(!closed) { "engine closed" }
+        releaseSessionLocked()
+        val previous = enginePtr
+        enginePtr = 0L
+        if (previous != 0L) nativeEngineDestroy(previous)
     }
 
     fun setParams(deltaJson: String): String =
@@ -162,13 +210,12 @@ class EngineClient private constructor(
      */
     fun cancel(progressId: String? = null) = sessionLifetime.read {
         val session = sessionPtr
-        if (session != 0L) nativeCancel(session, progressId)
+        if (!isDeviceLost && session != 0L) nativeCancel(session, progressId)
     }
 
     /** 读取当前（或指定 [progressId]）渲染的进度。返回 JSON（含 pct/stage）。 */
     fun progress(progressId: String? = null): String = sessionLifetime.read {
-        check(enginePtr != 0L) { "engine not created" }
-        nativeProgress(enginePtr, sessionPtr, progressId)
+        withEngine { nativeProgress(enginePtr, sessionPtr, progressId) }
     }
 
     fun progressSnapshot(): SpkProgress {
@@ -179,12 +226,13 @@ class EngineClient private constructor(
 
     /** 取工作空间 → 目标空间的输出变换（CAM16 色域映射 + TRC），用于导出与显示。 */
     fun outputTransform(srcCs: String, dstCs: String, gamutCompressJson: String? = null): String =
-        nativeOutputTransform(enginePtr, srcCs, dstCs, gamutCompressJson)
+        withEngine { nativeOutputTransform(enginePtr, srcCs, dstCs, gamutCompressJson) }
 
     // ---- 生命周期 ---------------------------------------------------------
 
     override fun close() {
         sessionLifetime.write {
+            closed = true
             releaseSessionLocked()
             val engine = enginePtr
             if (engine != 0L) {
@@ -194,10 +242,20 @@ class EngineClient private constructor(
         }
     }
 
-    private inline fun <T> requireSession(block: () -> T): T {
+    private inline fun <T> withEngine(block: () -> T): T {
+        if (isDeviceLost) throw SpkException("VK_ERROR_DEVICE_LOST: reopen the source to recreate the renderer")
         check(enginePtr != 0L) { "engine not created" }
+        try {
+            return block()
+        } catch (error: SpkException) {
+            recordFailure(error)
+            throw error
+        }
+    }
+
+    private inline fun <T> requireSession(block: () -> T): T = withEngine {
         check(sessionPtr != 0L) { "no session open" }
-        return block()
+        block()
     }
 
     // ---- native 声明（实例方法，JNI 第二参是 jobject） ---------------------
@@ -222,6 +280,7 @@ class EngineClient private constructor(
     private external fun nativeOpenRaw(enginePtr: Long, pixels: Long, paramsJson: String): Long
     private external fun nativeRenderForExport(enginePtr: Long, sessionPtr: Long): NativeRenderResult
     private external fun nativeRenderExportOnce(enginePtr: Long, sessionPtr: Long): NativeRenderResult
+    private external fun nativeRenderExportResolved(enginePtr: Long, sessionPtr: Long, filmSeed: Long, printSeed: Long): NativeRenderResult
     private external fun nativeSetParams(enginePtr: Long, sessionPtr: Long, deltaJson: String): String
     private external fun nativeGetParams(enginePtr: Long, sessionPtr: Long): String
     private external fun nativeSolve(enginePtr: Long, sessionPtr: Long, target: String): String
@@ -243,6 +302,8 @@ class EngineClient private constructor(
 
     companion object {
         private const val TAG = "EngineClient"
+        private val resourcesLock = Any()
+        @Volatile private var preparedResources: String? = null
 
         init {
             System.loadLibrary("spektralab")
@@ -258,7 +319,7 @@ class EngineClient private constructor(
         @JvmStatic
         private external fun nativeBuildInfo(): String
 
-        fun buildInfo(): String = nativeBuildInfo()
+        fun buildInfo(): String = nativeBuildInfo() + "; android-export=descriptor-windows-v2"
 
         /**
          * 创建引擎。先把 `assets/engine/` 解压到 `filesDir/engine/`（引擎需要
@@ -269,15 +330,26 @@ class EngineClient private constructor(
             val ptr = nativeEngineCreate(dir)
             check(ptr != 0L) { "spk_engine_create failed" }
             Log.i(TAG, "engine created, resources=$dir")
-            return EngineClient(ptr)
+            return EngineClient(ptr, dir)
         }
 
         private fun prepareResources(context: Context): String {
-            val target = File(context.filesDir, "engine").apply { mkdirs() }
-            copyAssets(context.assets, "engine", target)
-            // 引擎的 resources_dir 直接包含 profiles/、spektrafilm_constants.bin、vulkan/ 等，
-            // 对应 assets/engine/resources/ 这一层。
-            return File(target, "resources").absolutePath
+            val target = File(context.filesDir, "engine")
+            val path = File(target, "resources").absolutePath
+            if (preparedResources == path && File(path).isDirectory) return path
+            return synchronized(resourcesLock) {
+                if (preparedResources == path && File(path).isDirectory) return@synchronized path
+                check(target.mkdirs() || target.isDirectory)
+                copyAssets(context.assets, "engine", target)
+                // An app upgrade must not pair an old generated variant with a new kernel.
+                // Only our derived shader variants are eligible for this cleanup.
+                val packaged = context.assets.list("engine/resources/vulkan").orEmpty().toSet()
+                File(path, "vulkan").listFiles()?.filter {
+                    it.isFile && (it.name.endsWith(".bounded.spv") || it.name.endsWith(".windowed.spv")) && it.name !in packaged
+                }?.forEach { check(it.delete()) { "Cannot remove obsolete shader variant" } }
+                preparedResources = path
+                path
+            }
         }
 
         private fun copyAssets(assets: AssetManager, srcPath: String, dest: File) {
@@ -286,10 +358,14 @@ class EngineClient private constructor(
                 val childSrc = if (srcPath.isEmpty()) name else "$srcPath/$name"
                 val childDest = File(dest, name)
                 if (assets.list(childSrc).isNullOrEmpty()) {
-                    // 是文件
                     assets.open(childSrc).use { input ->
                         childDest.parentFile?.mkdirs()
-                        childDest.outputStream().use { output -> input.copyTo(output) }
+                        // A second process may still be reading the previous inode.
+                        val temporary = File.createTempFile(".asset-copy-", ".tmp", childDest.parentFile)
+                        try {
+                            temporary.outputStream().use { output -> input.copyTo(output) }
+                            check(temporary.renameTo(childDest)) { "Cannot install engine asset: $childSrc" }
+                        } finally { temporary.delete() }
                     }
                 } else {
                     copyAssets(assets, childSrc, childDest)

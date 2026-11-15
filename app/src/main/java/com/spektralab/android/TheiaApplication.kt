@@ -1,13 +1,31 @@
 package com.spektralab.android
 
 import android.app.Application
+import android.app.ActivityManager
+import android.os.Build
+import android.os.Process
+import com.spektralab.android.data.cache.CacheMaintenance
+import com.spektralab.android.data.cache.ExportRenderCache
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
-/**
- * 应用入口。目前只做占位——后续在这里持有全局单例（引擎客户端、磁盘缓存、
- * 色彩管理等）以及应用级初始化。
- */
+/** Process-scoped startup; disk maintenance runs only in the UI process and off the UI thread. */
 class TheiaApplication : Application() {
+    private val maintenance = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
+        val process = if (Build.VERSION.SDK_INT >= 28) getProcessName() else
+            (getSystemService(ACTIVITY_SERVICE) as ActivityManager).runningAppProcesses
+                ?.firstOrNull { it.pid == Process.myPid() }?.processName
+        if (process != packageName) return
+        maintenance.launch {
+            runCatching {
+                CacheMaintenance.pruneStale(cacheDir)
+                ExportRenderCache.get(this@TheiaApplication).maintain()
+            }.onFailure { android.util.Log.w("TheiaCache", "Deferred cache maintenance", it) }
+        }
     }
 }
