@@ -42,6 +42,36 @@ internal class ParameterPerformanceAudit(private val test: Instrumentation, priv
         } finally { test.runOnMainSync { activity.finish() } }
     }
 
+    /** Longer sampling for isolated timing outliers; same production grading and input pixels. */
+    fun focusedPost(): String {
+        val activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
+        lateinit var vm: EditorViewModel
+        test.runOnMainSync { vm = ViewModelProvider(activity)[EditorViewModel::class.java] }
+        try {
+            await { vm.engine != null && !vm.busy }
+            val input = ShortArray(width * height * 4) { (it * 373 + 17).toShort() }
+            val report = JSONArray()
+            for (change in postCases().filter { it.name in setOf("neutral", "whitePoint", "contrast", "hsl.MAGENTA.hue") }) {
+                val grade = gradeMethod.invoke(vm, EditorParams().apply(change.edit)) as Grade
+                repeat(5) { ColorPipeline.applyGradeToBitmap(input, width, height, grade).first.recycle() }
+                val times = JSONArray()
+                var hash = ""
+                repeat(15) {
+                    val start = now()
+                    val (bitmap, histogram) = ColorPipeline.applyGradeToBitmap(input, width, height, grade)
+                    times.put(now() - start)
+                    check(histogram.r.sum() == width * height)
+                    val next = pixelsHash(bitmap)
+                    check(hash.isEmpty() || hash == next); hash = next; bitmap.recycle()
+                }
+                report.put(JSONObject().put("parameter", change.name).put("ms", times).put("pixels_sha256", hash))
+            }
+            File(output, "post-perf-$label.json").writeText(report.toString(2))
+            return "Four unchanged production grading cases; five warmups and fifteen timed frames each; $report"
+        } finally { test.runOnMainSync { activity.finish() } }
+    }
+
     private fun postCases(): List<Change> = buildList {
         add(Change("neutral") {})
         mapOf("temperature" to .4f, "tint" to .3f, "gradeExposure" to .6f, "contrast" to 30f,

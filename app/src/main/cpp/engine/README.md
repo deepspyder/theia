@@ -82,7 +82,7 @@ DIR 与颗粒的独立验证复用构建入口：
 | stb_truetype | ✅ `engine/third_party/stb` | 片边文字光栅化 |
 | 片边字体 | ✅ `engine/resources_product/fonts` | CMake 里 `file(READ ... HEX)` 嵌入二进制 |
 | **glslangValidator** | 由本地构建环境提供 | 编译 Vulkan 内核为 SPIR-V；运行包需要包含相应着色器 |
-| LibRaw | 已接入 0.22.2 | 源码默认来自工作区 deps；当前 Android 构建未启用 OpenMP |
+| LibRaw | 0.23.0-Snapshot202611，固定 a9a14b1 | `python tools/setup_libraw.py` 准备独立 Android 依赖；不启用 OpenMP，HE 分块支持取消；验证见 `docs/compatibility/libraw-upgrade-202611.md` |
 
 ## 编译 SPIR-V（运行前必须）
 

@@ -1298,23 +1298,23 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // 相纸切换：先用打印 LUT 给近似预览（~10ms），再排程真正的 reprint
-    // （LUT 无法表示曝光/滤色/glare，只作快速反馈）。
+    // Explicit stock picks follow the PC's declared paper; restoring an edit keeps its custom pair.
     fun selectFilm(stockId: String) {
         if (busy || isExporting || isBatchExporting) return
         val film = films.firstOrNull { it.id == stockId } ?: return
-        if (stockId == params.filmId && papers.any { it.id == params.paperId } &&
-            StockCatalog.canPrint(stockId, params.paperId)) return
-        val paper = if (StockCatalog.canPrint(stockId, params.paperId) && papers.any { it.id == params.paperId })
-            params.paperId else papers.firstOrNull { it.id == film.targetPrint && StockCatalog.canPrint(stockId, it.id) }?.id
-                ?: papers.firstOrNull { StockCatalog.canPrint(stockId, it.id) }?.id ?: return
+        fun compatiblePaper(id: String?) = papers.firstOrNull { it.id == id && StockCatalog.canPrint(stockId, it.id) }?.id
+        val paper = compatiblePaper(film.targetPrint) ?: compatiblePaper(params.paperId)
+            ?: papers.firstOrNull { StockCatalog.canPrint(stockId, it.id) }?.id ?: return
+        val model = if (stockId == "cinestill_800t")
+            com.spektralab.android.core.model.HalationModel.BACK_REFLECTION.version else params.halationModelVersion
+        if (stockId == params.filmId && paper == params.paperId && model == params.halationModelVersion) return
         params.filmId = stockId
         params.paperId = paper
-        // CineStill is a new explicit choice; existing photographs never opt in on load.
-        if (stockId == "cinestill_800t") params.halationModelVersion = com.spektralab.android.core.model.HalationModel.BACK_REFLECTION.version
+        params.halationModelVersion = model
         scheduleRender(immediate = true)
     }
 
+    // Paper LUTs provide temporary feedback; the scheduled reprint remains authoritative.
     fun selectPaper(stockId: String) {
         if (busy || isExporting || isBatchExporting || stockId == params.paperId ||
             papers.none { it.id == stockId } || !StockCatalog.canPrint(params.filmId, stockId)) return

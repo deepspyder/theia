@@ -84,10 +84,10 @@ workspace/
 ├── SpektraLab-Windows/
 │   └── engine/                 # 共享引擎、配置与着色器
 └── deps/
-    └── LibRaw-0.22.2/          # RAW 解码依赖
+    └── LibRaw-a9a14b1970d188c25dade81f8326ff00a6e33649/ # 固定 RAW 解码快照
 ```
 
-保留上述实际目录名。若更换引擎位置，需要同步调整 CMake 的 `SPEKTRA_ENGINE_DIR`、资源同步参数和着色器脚本的输入目录；LibRaw 路径由 `SPEKTRALAB_LIBRAW_SOURCE` 控制。准备 LibRaw 可使用共享引擎中的 `setup-libraw.ps1`。
+保留上述实际目录名。若更换引擎位置，需要同步调整 CMake 的 `SPEKTRA_ENGINE_DIR`、资源同步参数和着色器脚本的输入目录；Android 的 LibRaw 路径由 `THEIA_LIBRAW_SOURCE` 控制。运行 `python tools/setup_libraw.py` 获取并校验固定源码；版本与摘要见 `tools/libraw.lock.json`。此依赖与桌面端独立，详见 [RAW 解码升级说明](docs/compatibility/libraw-upgrade-202611.md)。
 
 GitHub 仓库现名为 `theia`。按上述本地布局克隆时，可执行 `git clone https://github.com/deepspyder/theia.git SpektraLab-Android`。
 

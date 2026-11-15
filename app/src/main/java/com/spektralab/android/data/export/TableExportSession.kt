@@ -21,9 +21,11 @@ internal data class TableExportInput(
     val params: EditSnapshot?,
     val evidence: SourceEvidence,
     val requestedEdge: Int,
+    /** An original can have saved edits that must still remain unchanged during export. */
+    val storedParams: EditSnapshot? = params,
 )
 
-/** One immutable project export transaction. Never reads the viewing-preview cache. */
+/** One immutable export transaction. Preview pixels are never used as export inputs. */
 internal class TableExportSession private constructor(
     private val context: Context,
     val plan: TableExportPlan,
@@ -92,7 +94,7 @@ internal class TableExportSession private constructor(
         val current = EditStore.resolveTableSource(context, input.source)
         check(current.uri == input.source.uri && current.editRevision == input.source.editRevision) { "TABLE_EXPORT_CHANGED" }
         val params = EditStore.load(context, Uri.parse(current.uri))?.let(EditSnapshot::capture)
-        check(params == input.params) { "TABLE_EXPORT_CHANGED" }
+        check(params == input.storedParams) { "TABLE_EXPORT_CHANGED" }
         if (bytes) {
             val source = SourceProbe.inspect(context, EditStore.editSourceUri(context, Uri.parse(current.uri)), check)
             check(source.verified && source.sha256 == input.evidence.sha256 && source.size == input.evidence.size) { "TABLE_EXPORT_CHANGED" }
@@ -129,12 +131,13 @@ internal class TableExportSession private constructor(
                 val source = if (recorded.assetId == null) EditStore.tableSource(context, resolved) else resolved
                 plan.items.filter { it.source.uri == recorded.uri }.forEach { placement ->
                     check(placement.source.assetId == recorded.assetId && placement.source.variantId == recorded.variantId) { "TABLE_EXPORT_CHANGED" }
+                    check(placement.source.appearance == recorded.appearance) { "TABLE_EXPORT_CHANGED" }
                     check(request.options.latestEdits || placement.source.editRevision == source.editRevision) { "TABLE_EXPORT_STALE" }
                 }
                 check(request.options.latestEdits || recorded.assetId != null || source.assetId == null) { "TABLE_EXPORT_STALE" }
                 check(request.options.latestEdits || source.editRevision == recorded.editRevision) { "TABLE_EXPORT_STALE" }
                 val uri = Uri.parse(source.uri)
-                val params = EditStore.load(context, uri)
+                val storedParams = EditStore.load(context, uri)
                 val original = EditStore.editSourceUri(context, uri)
                 val evidence = SourceProbe.inspect(context, original, check)
                 check(evidence.verified) { "TABLE_EXPORT_SOURCE" }
@@ -142,7 +145,13 @@ internal class TableExportSession private constructor(
                     val saved = EditStore.savedPhoto(context, asset) ?: error("TABLE_EXPORT_SOURCE")
                     if (saved.sourceSha256 != null) EditStore.checkSavedSource(context, saved, evidence)
                 }
-                check(params != null || !RawDecoder.isRaw(context, original, evidence.displayName)) { "TABLE_EXPORT_RAW_UNEDITED" }
+                val raw = RawDecoder.isRaw(context, original, evidence.displayName)
+                val originalAppearance = !request.options.latestEdits && (
+                    source.appearance == TableAppearance.ORIGINAL ||
+                        source.appearance == null && !raw && storedParams != null &&
+                        TableOriginalAppearance.matches(context, source, original, check))
+                val params = storedParams.takeUnless { originalAppearance }
+                check(params != null || !raw) { "TABLE_EXPORT_RAW_UNEDITED" }
                 if (params == null) {
                     val header = ByteArray(26)
                     val read = context.contentResolver.openInputStream(original)?.use { stream ->
@@ -158,7 +167,8 @@ internal class TableExportSession private constructor(
                     params?.unreadableColorAdjustments == null && params?.unreadableToneCurves == null) { "TABLE_EXPORT_UNSUPPORTED" }
                 val edge = plan.sourceEdge(recorded.uri)
                 check(edge <= MAX_INPUT_EDGE) { "TABLE_EXPORT_CAPACITY" }
-                TableExportInput(recorded.uri, source, params?.let(EditSnapshot::capture), evidence, edge)
+                TableExportInput(recorded.uri, source, params?.let(EditSnapshot::capture), evidence, edge,
+                    storedParams?.let(EditSnapshot::capture))
             }
             val estimated = inputs.sumOf { it.requestedEdge.toLong() * it.requestedEdge * 4 }
             check(estimated <= MAX_STAGE_BYTES && StatFs(context.cacheDir.path).availableBytes > estimated + 128L * 1024 * 1024) { "TABLE_EXPORT_DISK" }

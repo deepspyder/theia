@@ -32,6 +32,7 @@ internal data class ViewingPhoto(
     val sourceWidth: Int = 0,
     val sourceHeight: Int = 0,
     val sourceFormat: String = "",
+    val appearance: com.spektralab.android.core.model.TableAppearance? = null,
 )
 
 private data class ViewingMetadata(val name: String, val caption: String,
@@ -78,6 +79,8 @@ internal fun GalleryScreen(
             sourceWidth = metadata[key]?.width ?: 0,
             sourceHeight = metadata[key]?.height ?: 0,
             sourceFormat = metadata[key]?.format.orEmpty(),
+            appearance = if (developed != null || uri == vm.currentUri && vm.rendered != null)
+                com.spektralab.android.core.model.TableAppearance.EDITED else com.spektralab.android.core.model.TableAppearance.ORIGINAL,
         )
     }
     val projects = vm.lightTableProjects
@@ -91,7 +94,8 @@ internal fun GalleryScreen(
         ViewingPhoto(item.id, preview, item.source.renderedPreview?.let { projects.details[it] } ?: preview, item.source.name, error.orEmpty(), error = error,
             wallDetail = item.source.renderedPreview?.let { projects.details[it] } ?: preview,
             canRefine = item.source.renderedPreview != null || item.source.preview != null,
-            sourceWidth = item.source.pixelWidth, sourceHeight = item.source.pixelHeight, sourceFormat = item.source.format)
+            sourceWidth = item.source.pixelWidth, sourceHeight = item.source.pixelHeight, sourceFormat = item.source.format,
+            appearance = item.source.appearance)
     }
     fun openOutput() {
         if (vm.busy || vm.isExporting || vm.isBatchExporting || projects.pending) return

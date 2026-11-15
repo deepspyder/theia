@@ -9,6 +9,7 @@ import com.spektralab.android.core.model.EditSnapshot
 import com.spektralab.android.core.model.EditorParams
 import com.spektralab.android.core.model.ExportOptions
 import com.spektralab.android.core.model.RenderCacheIdentity
+import com.spektralab.android.engine.RawDecoder
 import com.spektralab.android.engine.EngineClient
 import com.spektralab.android.engine.Rgba16Source
 import com.spektralab.android.data.local.EditStore
@@ -70,7 +71,7 @@ internal class ExportRenderCache private constructor(private val context: Contex
             val key =
                 RenderCacheIdentity(
                         source,
-                        "libraw-0.22.2+android-decode-1",
+                        RawDecoder.decoderIdentity,
                         "$build|${buildIdentity()}",
                         resources,
                         0,

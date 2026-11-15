@@ -109,34 +109,12 @@ else()
     set_target_properties(spk_volk PROPERTIES LINKER_LANGUAGE C)
     target_include_directories(spk_volk PUBLIC ${SPEKTRA_ENGINE_DIR}/third_party/volk)
 
-    # ---- LibRaw：RAW 解码（Android 单线程构建，不启用 OpenMP）-------------
-    # 依赖源码由 SpektraLab-Windows/engine/setup-libraw.ps1 下载到 deps/LibRaw-0.22.2。
-    # NDK clang 不传 -fopenmp，LibRaw 的 libraw_types.h 就不会定义 LIBRAW_USE_OPENMP，
-    # 自然退化为单线程，无需链接 OpenMP。
-    set(SPEKTRALAB_LIBRAW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../deps/LibRaw-0.22.2"
-        CACHE PATH "Extracted official LibRaw 0.22.2 source")
-    set(SPEKTRALAB_RAW_AVAILABLE OFF)
-    if(EXISTS "${SPEKTRALAB_LIBRAW_SOURCE}/libraw/libraw.h")
-        file(GLOB_RECURSE spk_libraw_sources CONFIGURE_DEPENDS "${SPEKTRALAB_LIBRAW_SOURCE}/src/*.cpp")
-        # *_ph.cpp 是无后处理构建的占位实现，不是额外实现，必须排除。
-        list(FILTER spk_libraw_sources EXCLUDE REGEX "/[^/]*_ph\\.cpp$")
-        add_library(spk_libraw STATIC ${spk_libraw_sources})
-        target_include_directories(spk_libraw PUBLIC "${SPEKTRALAB_LIBRAW_SOURCE}")
-        target_compile_definitions(spk_libraw PUBLIC LIBRAW_NODLL)
-        target_compile_features(spk_libraw PRIVATE cxx_std_11)
-        set_target_properties(spk_libraw PROPERTIES POSITION_INDEPENDENT_CODE ON)
-        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-            target_compile_options(spk_libraw PRIVATE -w)
-        endif()
-        set(SPEKTRALAB_RAW_AVAILABLE ON)
-        list(APPEND SPK_SOURCES
-            ${CMAKE_CURRENT_SOURCE_DIR}/raw_decode.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/raw_preview.cpp)
-        list(APPEND SPK_INCLUDE_DIRS "${SPEKTRALAB_LIBRAW_SOURCE}")
-    else()
-        message(WARNING "LibRaw 0.22.2 not found at ${SPEKTRALAB_LIBRAW_SOURCE} — RAW decode disabled. "
-                        "Run SpektraLab-Windows/engine/setup-libraw.ps1 to fetch it.")
-    endif()
+    # Android RAW decoder is pinned independently of the shared desktop engine.
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/AndroidLibRaw.cmake")
+    set(SPEKTRALAB_RAW_AVAILABLE ON)
+    list(APPEND SPK_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/raw_decode.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/raw_preview.cpp)
 
     # ---- 可选：编译 SPIR-V（需要 glslangValidator） ----------------------
     find_program(SPEKTRALAB_GLSLANG NAMES glslangValidator glslang)

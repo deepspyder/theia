@@ -84,10 +84,10 @@ workspace/
 ├── SpektraLab-Windows/
 │   └── engine/                 # Shared engine, profiles and shaders
 └── deps/
-    └── LibRaw-0.22.2/          # RAW decoding dependency
+    └── LibRaw-a9a14b1970d188c25dade81f8326ff00a6e33649/ # Pinned RAW decoder
 ```
 
-Keep these actual directory names. To relocate the engine, update CMake's `SPEKTRA_ENGINE_DIR`, the resource-sync argument and the shader script's input directory together. `SPEKTRALAB_LIBRAW_SOURCE` controls the LibRaw path. The shared engine includes `setup-libraw.ps1` to prepare LibRaw.
+Keep these actual directory names. To relocate the engine, update CMake's `SPEKTRA_ENGINE_DIR`, the resource-sync argument and the shader script's input directory together. `THEIA_LIBRAW_SOURCE` controls the Android LibRaw path. Run `python tools/setup_libraw.py` to fetch and verify the source pinned in `tools/libraw.lock.json`. This dependency is separate from the desktop decoder; see the [RAW decoder upgrade notes](docs/compatibility/libraw-upgrade-202611.md).
 
 The GitHub repository is now named `theia`. To match the local layout above, clone it with `git clone https://github.com/deepspyder/theia.git SpektraLab-Android`.
 

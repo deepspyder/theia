@@ -15,6 +15,8 @@
 
 #include <libraw/libraw.h>
 #include "native_pixels.hpp"
+#include "android_raw_decoder.hpp"
+#include "theia_libraw_build.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -182,7 +184,7 @@ bool decode_raw(const std::string& path, bool half_size, const float* user_mul,
             error = "RAW decode cancelled";
             return false;
         }
-        LibRaw raw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        theia::raw::Decoder raw([&] { return cancellation && cancellation->requested(); });
         if (cancellation && cancellation->callback) {
             raw.set_progress_handler(check_raw_progress, const_cast<RawCancellation*>(cancellation));
         }
@@ -209,6 +211,7 @@ bool decode_raw(const std::string& path, bool half_size, const float* user_mul,
         if (!raw_stage_succeeded(raw.open_file(path.c_str()), "open", error)) {
             return false;
         }
+        if (!raw.supportedCompression(error)) return false;
         // Use half demosaic only when it still contains every requested output pixel.
         if (max_long_edge > 0 &&
             std::max(raw.imgdata.sizes.width, raw.imgdata.sizes.height) / 2 >= max_long_edge) {
@@ -327,6 +330,13 @@ void throw_engine_error(JNIEnv* env, const std::string& msg) {
 
 extern "C" {
 
+JNIEXPORT jstring JNICALL
+Java_com_spektralab_android_engine_RawDecoder_nativeDecoderIdentity(JNIEnv* env, jobject) {
+    const std::string identity = std::string("libraw-") + LibRaw::version() +
+        "+" THEIA_LIBRAW_COMMIT "+android-decode-2";
+    return env->NewStringUTF(identity.c_str());
+}
+
 JNIEXPORT jfloatArray JNICALL
 Java_com_spektralab_android_engine_RawDecoder_nativeReadCameraMatrix(
     JNIEnv* env, jobject, jstring path) {
@@ -335,7 +345,7 @@ Java_com_spektralab_android_engine_RawDecoder_nativeReadCameraMatrix(
         if (!text) return nullptr;
         const std::string file(text);
         env->ReleaseStringUTFChars(path, text);
-        LibRaw raw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        theia::raw::Decoder raw;
         std::string error;
         if (!raw_stage_succeeded(raw.open_file(file.c_str()), "metadata", error)) {
             throw_engine_error(env, error);

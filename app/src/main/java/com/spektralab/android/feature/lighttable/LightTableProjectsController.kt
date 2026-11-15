@@ -11,6 +11,7 @@ import com.spektralab.android.core.model.LightTableScene
 import com.spektralab.android.core.model.TablePlacement
 import com.spektralab.android.core.model.TableProjectSummary
 import com.spektralab.android.core.model.TableSource
+import com.spektralab.android.core.model.TableAppearance
 import com.spektralab.android.data.cache.LightTablePreviews
 import com.spektralab.android.data.library.LightTableProjectStore
 import com.spektralab.android.data.local.EditStore
@@ -66,7 +67,8 @@ internal class LightTableProjectsController(private val context: Context, privat
             val photo = photos[frame.index]
             val point = draft.photoPositions[photo.key] ?: frame.bounds.topLeft
             TablePlacement(UUID.randomUUID().toString(), TableSource(photo.key, photo.name,
-                pixelWidth = photo.sourceWidth, pixelHeight = photo.sourceHeight, format = photo.sourceFormat),
+                pixelWidth = photo.sourceWidth, pixelHeight = photo.sourceHeight, format = photo.sourceFormat,
+                appearance = photo.appearance),
                 point.x, point.y, frame.bounds.width, frame.bounds.height, frame.rotation)
         }, draft.zoom, draft.pan.x / draft.viewportFit, draft.pan.y / draft.viewportFit, draft.lightOn, draft.millimeters)
     }
@@ -96,6 +98,7 @@ internal class LightTableProjectsController(private val context: Context, privat
                         val rendered = live.wallDetail ?: live.detail ?: live.thumbnail
                         val tracked = EditStore.tableSource(context, item.source)
                         tracked.copy(
+                            appearance = live.appearance ?: tracked.appearance,
                             preview = bitmap?.takeUnless { it.isRecycled }?.let(previewStore::put) ?: tracked.preview,
                             renderedPreview = rendered?.takeUnless { it.isRecycled }?.let(previewStore::put) ?: tracked.renderedPreview,
                         )
@@ -137,7 +140,8 @@ internal class LightTableProjectsController(private val context: Context, privat
             val ratio = if (bitmap != null) bitmap.width.toFloat() / bitmap.height else
                 if (photo.sourceWidth > 0 && photo.sourceHeight > 0) photo.sourceWidth.toFloat() / photo.sourceHeight else 1f
             val source = EditStore.tableSource(context, TableSource(photo.key, photo.name,
-                pixelWidth = photo.sourceWidth, pixelHeight = photo.sourceHeight, format = photo.sourceFormat))
+                pixelWidth = photo.sourceWidth, pixelHeight = photo.sourceHeight, format = photo.sourceFormat,
+                appearance = photo.appearance))
                 .copy(
                     preview = bitmap?.takeUnless { it.isRecycled }?.let(previewStore::put),
                     renderedPreview = photo.wallDetail?.takeUnless { it.isRecycled }?.let(previewStore::put),
@@ -156,7 +160,7 @@ internal class LightTableProjectsController(private val context: Context, privat
             val bitmap = runCatching { context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }.getOrNull()
             val preview = bitmap?.let { previewStore.put(it) }
             bitmap?.recycle()
-            TablePlacement(UUID.randomUUID().toString(), source.copy(preview = preview, renderedPreview = preview),
+            TablePlacement(UUID.randomUUID().toString(), source.copy(preview = preview, appearance = TableAppearance.ORIGINAL),
                 24f + index % 3 * 180f, (expected.scene.items.maxOfOrNull { it.y + it.height } ?: 0f) + 24f + index / 3 * 190f,
                 160f, 160f)
         } }

@@ -1,6 +1,7 @@
 // Display-only RAW originals. Never used as film input, render cache, or export pixels.
 #include <jni.h>
 #include <libraw/libraw.h>
+#include "android_raw_decoder.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -54,7 +55,7 @@ Java_com_spektralab_android_engine_RawDecoder_nativeCameraPreview(
         Cancellation cancelled(env, callback);
         const auto file = path_string(env, path);
         if (cancelled.requested()) { fail(env, "RAW preview cancelled"); return nullptr; }
-        LibRaw raw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        theia::raw::Decoder raw([&] { return cancelled.requested(); });
         raw.set_progress_handler(progress, &cancelled);
         if (raw.open_file(file.c_str()) != LIBRAW_SUCCESS) return nullptr;
         const auto& list = raw.imgdata.thumbs_list;
@@ -98,9 +99,11 @@ Java_com_spektralab_android_engine_RawDecoder_nativeDisplayPreview(
         Cancellation cancelled(env, callback);
         const auto file = path_string(env, path);
         if (cancelled.requested()) { fail(env, "RAW preview cancelled"); return nullptr; }
-        LibRaw raw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        theia::raw::Decoder raw([&] { return cancelled.requested(); });
         raw.set_progress_handler(progress, &cancelled);
         if (raw.open_file(file.c_str()) != LIBRAW_SUCCESS) return nullptr;
+        std::string compression_error;
+        if (!raw.supportedCompression(compression_error)) return nullptr;
         auto& params = raw.imgdata.params;
         params.half_size = 1;
         params.user_qual = 3;  // AHD remains the decoder; this is a display rendition, not the film decode.

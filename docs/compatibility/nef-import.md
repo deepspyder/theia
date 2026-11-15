@@ -1,5 +1,11 @@
 # Nikon NEF import
 
+Current decoder update (2026-11-15): Android now pins LibRaw
+`0.23.0-Snapshot202611` for Nikon HE/HE★ decoding, including the supplied Z5 II
+file. See [the upgrade and regression report](libraw-upgrade-202611.md).
+The 0.22.2 discussion below records the earlier Z6 II warning-handling fix;
+it is not the current dependency version or an HE support claim.
+
 ## Report and fix
 
 A Nikon Z6 II user reported `RAW unpack: decoder reported corrupt data`.

@@ -4,6 +4,14 @@ import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal enum class TableAppearance(val id: String) {
+    ORIGINAL("original"), EDITED("edited");
+
+    companion object {
+        fun fromId(id: String) = entries.firstOrNull { it.id == id } ?: error("TABLE_FUTURE_VERSION")
+    }
+}
+
 /** Metadata only. Previews are disposable, bounded files; originals and edits remain independent. */
 internal data class TableSource(
     val uri: String,
@@ -17,6 +25,8 @@ internal data class TableSource(
     val format: String = "",
     /** Developed wall frame, separate from the fallback source thumbnail. */
     val renderedPreview: String? = null,
+    /** Null only for projects saved before explicit display provenance was recorded. */
+    val appearance: TableAppearance? = null,
 )
 
 internal data class TablePlacement(
@@ -74,6 +84,7 @@ internal data class LightTableScene(
                         put("pixel_width", source.pixelWidth); put("pixel_height", source.pixelHeight)
                         put("format", source.format)
                         put("rendered_preview", source.renderedPreview)
+                        source.appearance?.let { put("appearance", it.id) }
                     })
                 }) }
             }).toString()
@@ -98,13 +109,14 @@ internal data class LightTableScene(
                 val item = items.getJSONObject(index)
                 val source = item.getJSONObject("source")
                 item.known("id", "x", "y", "width", "height", "rotation", "source")
-                source.known("uri", "name", "asset", "variant", "revision", "preview", "rendered_preview", "pixel_width", "pixel_height", "format")
+                source.known("uri", "name", "asset", "variant", "revision", "preview", "rendered_preview", "pixel_width", "pixel_height", "format", "appearance")
                 TablePlacement(item.getString("id"), TableSource(
                     source.getString("uri"), source.getString("name"),
                     source.optString("asset").takeIf(String::isNotEmpty), source.optString("variant").takeIf(String::isNotEmpty),
                     source.getLong("revision"), source.optString("preview").takeIf(String::isNotEmpty),
                     source.getInt("pixel_width"), source.getInt("pixel_height"), source.getString("format"),
                     source.optString("rendered_preview").takeIf(String::isNotEmpty),
+                    if (source.has("appearance")) TableAppearance.fromId(source.getString("appearance")) else null,
                 ), item.number("x"), item.number("y"), item.number("width"), item.number("height"), item.number("rotation"))
             }, json.number("zoom"), json.number("pan_x"), json.number("pan_y"), json.getBoolean("light"), json.getBoolean("millimeters"))
                 .validated()

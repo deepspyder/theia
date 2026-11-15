@@ -24,6 +24,11 @@ object RawDecoder {
 
     init { System.loadLibrary("spektralab") }
 
+    /** Bound to the native library and fixed source pin, never a manually duplicated cache tag. */
+    internal val decoderIdentity: String by lazy { nativeDecoderIdentity() }
+    private external fun nativeDecoderIdentity(): String
+
+
     private external fun nativeDecodeRaw(path: String, halfSize: Boolean, userMul: FloatArray?,
                                          cancellation: RawDecodeCancellation?): RawDecodeResult
     private external fun nativeDecodeForExport(path: String, maxLongEdge: Int, userMul: FloatArray?,

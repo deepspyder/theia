@@ -334,7 +334,7 @@
     <string name="table_output_numbers">照片编号</string>
     <string name="table_output_shadows">柔和阴影</string>
     <string name="table_output_latest">使用最新编辑</string>
-    <string name="table_output_latest_hint">允许重新生成项目保存后更新过的编辑版本，不覆盖项目记录。</string>
+    <string name="table_output_latest_hint">按当前保存的胶片与调色重新生成，包括当前显示为原片的照片；不覆盖项目记录。</string>
     <string name="table_output_privacy">合成图不写入原片的拍摄信息和位置信息。</string>
     <string name="table_output_save">生成并保存</string>
     <string name="table_output_close">关闭导出设置</string>

@@ -49,7 +49,7 @@ profiles were modified by this adaptation.
 | --- | --- | --- |
 | Resource Han Rounded CN | Cyano Hao; portions by Adobe. SIL Open Font License 1.1. | [Bundled OFL and copyrights](app/src/main/assets/licenses/Resource-Han-Rounded-OFL.txt); [font documentation](docs/project/fonts.md). |
 | Lucide icons | Lucide Icons and Contributors. ISC; additional notices are retained in the bundled file. | [Bundled license](app/src/main/assets/licenses/lucide-LICENSE.txt). |
-| LibRaw | RAW decoding dependency; distributed by its authors under LGPL 2.1 / CDDL 1.0 dual-license terms. | `deps/LibRaw-0.22.2/LICENSE.LGPL` and `LICENSE.CDDL` in the dependency source checkout. |
+| LibRaw | RAW decoding dependency; distributed by its authors under LGPL 2.1 / CDDL 1.0 dual-license terms. | Pinned Android source and notices: [LibRaw dependency notes](docs/compatibility/libraw-upgrade-202611.md); bundled `app/src/main/assets/licenses/LibRaw-*` files. |
 | volk | Arseny Kapoulkine. MIT. | `SpektraLab-Windows/engine/third_party/volk/LICENSE.md` in the shared checkout. |
 | stb | Its authors' public-domain / MIT terms. | `SpektraLab-Windows/engine/third_party/stb/LICENSE`; resource sync also ships `stb-LICENSE.txt`. |
 | Liberation imprint fonts | Copyright and SIL Open Font License notices supplied with the fonts. | `SpektraLab-Windows/engine/resources_product/fonts/LICENSE`; resource sync also ships `Imprint-fonts-LICENSE.txt`. |

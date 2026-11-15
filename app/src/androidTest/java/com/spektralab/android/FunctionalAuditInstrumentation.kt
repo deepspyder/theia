@@ -77,6 +77,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var theiaBrandOnly = false
     private var holdOriginalOnly = false
     private var nefImportOnly = false
+    private var rawUpgradeMode: String? = null
     private var fullExportPerfOnly = false
     private var rawInputAccessOnly = false
     private var rawCancellationOnly = false
@@ -88,6 +89,8 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var stockInteractionOnly = false
     private var interactionPerfOnly = false
     private var parameterPerfOnly = false
+    private var focusedPostOnly = false
+    private var tableAppearanceOnly = false
     private var projectRestoreOnly = false
     private var cineStillOnly = false
     private var cineStillMode = ""
@@ -152,6 +155,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         theiaBrandOnly = audit == "theia-brand"
         holdOriginalOnly = audit == "hold-original"
         nefImportOnly = audit == "nef-import"
+        rawUpgradeMode = audit?.takeIf { it in setOf("raw-upgrade-baseline", "raw-upgrade", "raw-upgrade-he") }
         fullExportPerfOnly = audit == "full-export-perf"
         rawInputAccessOnly = audit == "raw-input-access"
         rawCancellationOnly = audit == "raw-cancellation"
@@ -186,6 +190,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         mixerPerformanceOnly = audit == "mixer-perf"
         interactionPerfOnly = audit == "interaction-perf"
         parameterPerfOnly = audit == "parameter-perf"
+        focusedPostOnly = audit == "post-perf"
+        tableAppearanceOnly = audit == "table-appearance"
+        pcParityOnly = audit == "pc-parity"
+        pcSelectionOnly = audit == "pc-selection"
         changedParamsOnly = audit == "changed-params"
         curveLayoutOnly = audit == "curve-layout"
         editingBoundariesOnly = audit == "editing-boundaries"
@@ -233,9 +241,43 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var effectsOnly = false
     private var reviewImageAsset: String? = null
     private var reviewImageSample = 16
+    private var pcParityOnly = false
+    private var pcSelectionOnly = false
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        if (pcParityOnly || pcSelectionOnly) {
+            if (pcParityOnly) case("image.pc_reference_capture") { PcPipelineParityAudit(this, output).capture() }
+            else case("film.pc_material_selection") { PcPipelineParityAudit(this, output).selection() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (tableAppearanceOnly) {
+            case("table.visible_appearance_matches_export") { TableAppearanceAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (focusedPostOnly) {
+            case("interaction.focused_post_timings") { ParameterPerformanceAudit(this, output, interactionPerfLabel).focusedPost() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        rawUpgradeMode?.let { mode ->
+            val audit = RawDecoderUpgradeAudit(this, output)
+            case("raw.upgrade.$mode") {
+                if (mode == "raw-upgrade-he") audit.highEfficiency() else audit.legacy(mode == "raw-upgrade-baseline")
+            }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         if (projectRestoreOnly) {
             case("lighttable.cold_workbench_appearance") { ProjectRestoreAudit(this, output).run(false) }
             case("lighttable.project_resave_appearance") { ProjectRestoreAudit(this, output).run(true) }
