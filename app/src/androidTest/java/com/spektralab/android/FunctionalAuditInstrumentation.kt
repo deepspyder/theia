@@ -137,6 +137,8 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        exportColorDiagnostic = audit == "export-colour-diagnostic"
+        exportColorApplication = audit?.takeIf { it in setOf("export-colour-application", "export-colour-matrix") }
         editorKeyboardOnly = audit == "editor-keyboard"
         dateImprintOnly = audit == "date-imprint"
         projectRestoreOnly = audit == "project-restore"
@@ -260,10 +262,26 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var appearanceOnly = false
     private var exportLifecycleOnly = false
     private var editorKeyboardOnly = false
+    private var exportColorDiagnostic = false
+    private var exportColorApplication: String? = null
     private var dateImprintOnly = false
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        exportColorApplication?.let { mode ->
+            case("export.colour_application") { ExportColorAudit(this, output).application(mode == "export-colour-matrix") }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (exportColorDiagnostic) {
+            case("export.colour_diagnostic") { ExportColorAudit(this, output).diagnose() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         if (dateImprintOnly) {
             case("editor.date_imprint_photo_metadata") { DateImprintAudit(this, output).run() }
             val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }

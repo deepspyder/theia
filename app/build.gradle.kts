@@ -111,6 +111,20 @@ dependencies {
 // ---------------------------------------------------------------------------
 val python = "python" // Windows 下用 python；如不在 PATH，改成绝对路径
 
+val materialCatalogAssets = layout.buildDirectory.dir("generated/materialCatalog/assets")
+val generateMaterialCatalog = tasks.register<Exec>("generateMaterialCatalog") {
+    val profiles = file("src/main/assets/engine/resources/profiles")
+    val script = rootProject.file("tools/build_material_catalog.py")
+    val output = materialCatalogAssets.get().file("engine/material-catalog.json").asFile
+    inputs.dir(profiles)
+    inputs.file(script)
+    outputs.file(output)
+    workingDir = rootProject.projectDir
+    commandLine(python, script.absolutePath, "--profiles", profiles.absolutePath, "--output", output.absolutePath)
+}
+android.sourceSets.getByName("main").assets.srcDir(materialCatalogAssets)
+tasks.named("preBuild").configure { dependsOn(generateMaterialCatalog) }
+
 tasks.register<Exec>("syncEngineResources") {
     group = "spektralab"
     description = "把引擎资源同步到 assets/engine/resources/"

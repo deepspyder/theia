@@ -28,7 +28,10 @@ data class Stock(
  * 不依赖引擎，可在创建引擎前调用。
  */
 object StockCatalog {
+    @Volatile
     private var stocks: Map<String, Stock> = emptyMap()
+    @Volatile
+    private var catalog: Pair<List<Stock>, List<Stock>>? = null
     fun isMonochrome(id: String): Boolean = stocks[id]?.monochrome == true
     fun isPositive(id: String): Boolean = stocks[id]?.type == "positive"
     fun hasNoAntihalation(id: String): Boolean = stocks[id]?.antihalation == "no"
@@ -66,45 +69,34 @@ object StockCatalog {
         "负片" to films.filter { it.type != "positive" },
     ).filter { it.second.isNotEmpty() }
 
+    /** Each Android process needs its own catalog; parse it once and publish the complete map. */
+    @Synchronized
     fun load(context: Context): Pair<List<Stock>, List<Stock>> {
+        catalog?.let { return it }
         val films = mutableListOf<Stock>()
         val papers = mutableListOf<Stock>()
-        val dir = "engine/resources/profiles"
-        val files = context.assets.list(dir) ?: return films to papers
-
-        for (f in files.sorted()) {
-            if (!f.endsWith(".json")) continue
-            val text = context.assets.open("$dir/$f").use {
-                it.readBytes().toString(Charsets.UTF_8)
-            }
-            val root = JSONObject(text)
-            val base = root.optString("derived_from").takeIf { it.isNotEmpty() }
-            val info = if (base == null) root.getJSONObject("info") else {
-                require(base.matches(Regex("[a-zA-Z0-9_-]{1,96}"))) { "Invalid material alias" }
-                val original = JSONObject(context.assets.open("$dir/$base.json").bufferedReader().use { it.readText() })
-                require(!original.has("derived_from")) { "Nested material aliases are unsupported" }
-                JSONObject(original.getJSONObject("info").toString()).apply {
-                    val overrides = root.getJSONObject("info")
-                    overrides.keys().forEach { key -> put(key, overrides.get(key)) }
-                    put("stock", f.removeSuffix(".json"))
-                }
-            }
+        val root = JSONObject(context.assets.open("engine/material-catalog.json").bufferedReader().use { it.readText() })
+        require(root.getInt("schema") == 1) { "Unsupported material catalog" }
+        val materials = root.getJSONArray("materials")
+        for (index in 0 until materials.length()) {
+            val info = materials.getJSONObject(index)
             val stock = Stock(
-                id = info.getString("stock"),
-                name = info.optString("name", info.getString("stock")),
-                stage = info.optString("stage", ""),
-                type = info.optString("type", ""),
+                id = info.getString("id"),
+                name = info.getString("name"),
+                stage = info.getString("stage"),
+                type = info.getString("type"),
                 targetPrint = if (info.isNull("target_print")) null else info.optString("target_print"),
-                monochrome = info.optString("channel_model") == "bw",
+                monochrome = info.getBoolean("monochrome"),
                 antihalation = info.optString("antihalation"),
-                derivedFrom = base,
+                derivedFrom = if (info.isNull("derived_from")) null else info.getString("derived_from"),
             )
             when (stock.stage) {
                 "filming" -> films += stock
                 "printing" -> papers += stock
             }
         }
+        require(films.isNotEmpty() && papers.isNotEmpty()) { "Material catalog is empty" }
         stocks = (films + papers).associateBy { it.id }
-        return films.sortedBy { it.name } to papers.sortedBy { it.name }
+        return (films.sortedBy { it.name } to papers.sortedBy { it.name }).also { catalog = it }
     }
 }

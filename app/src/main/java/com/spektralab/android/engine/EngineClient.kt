@@ -319,7 +319,7 @@ class EngineClient private constructor(
         @JvmStatic
         private external fun nativeBuildInfo(): String
 
-        fun buildInfo(): String = nativeBuildInfo() + "; android-export=descriptor-windows-v2"
+        fun buildInfo(): String = nativeBuildInfo() + "; android-export=descriptor-windows-v2; material-catalog=1"
 
         /**
          * 创建引擎。先把 `assets/engine/` 解压到 `filesDir/engine/`（引擎需要

@@ -109,6 +109,9 @@ class RenderHostService : Service() {
         fun checkCancelled() { if (work.cancelled.get() || Thread.currentThread().isInterrupted) throw SpkException("render cancelled") }
         try {
             source.use {
+                // Object singletons are process-local. Resolve positive/BW material semantics
+                // before converting the frozen edit to native parameters in this :render process.
+                measureExport("material_catalog") { StockCatalog.load(this) }
                 val request = ExportFrameRequest.fromJson(requestJson)
                 require(request.jobId == work.id)
                 require(request.decoderIdentity == RawDecoder.decoderIdentity && request.rendererIdentity == EngineClient.buildInfo()) { "Renderer identity changed" }
