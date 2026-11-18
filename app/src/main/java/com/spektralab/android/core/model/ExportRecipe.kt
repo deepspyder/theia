@@ -10,4 +10,6 @@ data class ExportRecipe(
     val jpegQuality: Int = 95,
     val keepCapture: Boolean = true,
     val keepLocation: Boolean = false,
+    val customSize: ExportSize? = null,
+    val naming: ExportNaming = ExportNaming(),
 )

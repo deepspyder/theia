@@ -15,7 +15,7 @@ internal object ExportSourceDecoder {
     fun open(context: Context, engine: EngineClient, source: Uri, raw: Boolean,
              params: EditorParams, options: ExportOptions, check: () -> Unit) {
         engine.closeSession()
-        val size = options.resolution
+        val size = options.renderResolution
         if (raw) {
             val cancellation = RawDecodeCancellation { check(); false }
             val xyz = if (params.cameraWbCustom) RawDecoder.readCameraMatrix(context, source, cancellation) else null

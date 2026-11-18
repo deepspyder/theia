@@ -137,6 +137,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        exportOptionsMode = audit?.takeIf { it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
         legacyUiOnly = audit == "legacy-ui"
         exportMatrixPart = arguments?.getString("matrixPart")?.takeIf { audit == "export-matrix" }
@@ -273,9 +274,24 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var overscanExportOnly = false
     private var legacyUiOnly = false
     private var exportMatrixPart: String? = null
+    private var exportOptionsMode: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        exportOptionsMode?.let { mode ->
+            case(mode) {
+                when (mode) {
+                    "export-options" -> ExportOptionsAudit(this).run()
+                    "export-options-application" -> ExportOptionsApplicationAudit(this, output).run()
+                    "export-options-batch" -> ExportOptionsBatchAudit(this).run()
+                    else -> ExportOptionsUiAudit(this, output).run()
+                }
+            }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         if (legacyUiOnly) {
             uiAudit()
             val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
@@ -2225,7 +2241,17 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             check(vm.errorMessage==null){vm.errorMessage!!};capture("grain_toggle");"grain control triggered native render"
         }
         case("ui.system_picker_import") {
-            val name="bmw-f-450-rm-sport-2048x2048-27531.jpg"
+            // Recent results can include our DI TIFFs, which Android ImageDecoder
+            // cannot import. Publish an owned JPEG rather than choosing arbitrary
+            // user media or weakening the real picker/decode/render assertions.
+            val name="Theia_Picker_Audit_${System.nanoTime()}.jpg"
+            val pickerBitmap=Bitmap.createBitmap(317,211,Bitmap.Config.ARGB_8888).apply { eraseColor(0xff527895.toInt()) }
+            val fixtureUri=try {
+                Uri.parse(com.spektralab.android.data.export.ExportPublisher(targetContext,{},{}).write(name,"image/jpeg") {
+                    check(pickerBitmap.compress(Bitmap.CompressFormat.JPEG,95,it))
+                }.removePrefix("相册: "))
+            } finally { pickerBitmap.recycle() }
+            try {
             if (tree().contains("返回大图预览")) click("返回大图预览")
             click("更多操作");click("导入照片")
             await(15000) {
@@ -2250,7 +2276,8 @@ class FunctionalAuditInstrumentation : Instrumentation() {
                 val tile=findImageTile(uiAutomation.rootInActiveWindow)
                 if(tile!=null) { check(tile.performAction(AccessibilityNodeInfo.ACTION_CLICK)); waitForIdleSync(); Thread.sleep(300) }
                 if (uiAutomation.rootInActiveWindow?.packageName?.toString() == activity.packageName) {
-                    await{vm.currentUri != null && vm.currentUri != previousUri && vm.lastResult !== old && !vm.busy}
+                    await{vm.errorMessage != null || vm.currentUri != null && vm.currentUri != previousUri && vm.lastResult !== old && !vm.busy}
+                    check(vm.sourceBitmap?.width==317 && vm.sourceBitmap?.height==211) { "Picker did not import its JPEG fixture" }
                     check(vm.errorMessage==null){vm.errorMessage!!};capture("picker_imported")
                     return@case "selected the first visible real photo using the system picker; new URI, decode and render returned to the editor"
                 }
@@ -2268,10 +2295,12 @@ class FunctionalAuditInstrumentation : Instrumentation() {
                 val confirm=openLabel(uiAutomation.rootInActiveWindow)
                 capture("picker_selected")
                 if (confirm != null) click(confirm)
-                await(15000){vm.lastResult!==old&&vm.hasPhoto&&vm.sourceBitmap!=null&&!vm.busy}
+                await(15000){vm.errorMessage!=null||vm.lastResult!==old&&vm.hasPhoto&&vm.sourceBitmap!=null&&!vm.busy}
                 check(vm.errorMessage==null){vm.errorMessage!!};capture("picker_imported");"selected a real photo in the system picker and confirmed import/decode/render"
+                    .also { check(vm.currentUri!=previousUri && vm.sourceBitmap?.width==317 && vm.sourceBitmap?.height==211) { "Picker did not import its JPEG fixture" } }
             }
             finally {repeat(4){if(uiAutomation.rootInActiveWindow?.packageName?.toString()!=targetContext.packageName){sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);Thread.sleep(250)}}}
+            } finally { targetContext.contentResolver.delete(fixtureUri,null,null) }
         }
         case("ui.crop_drag_outside_boundary") {
             // Test-owned file keeps the crop gesture independent of the system picker's outcome.
@@ -2959,7 +2988,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         case("editor.recipe_roundtrip") {val recipe=ExportRecipe("Audit", "JPEG",2048,"sRGB",87);runOnMainSync{vm.applyRecipe(recipe)};check(vm.jpegQuality==87&&vm.exportRes==2048);"recipe applied"}
         case("editor.recipe_persistence") {
             val before=RecipeStore.load(app);val name="QA-${System.currentTimeMillis()}"
-            runOnMainSync{vm.saveRecipe(name)};check(RecipeStore.load(app).any{it.name==name&&it.jpegQuality==87})
+            runOnMainSync{vm.saveRecipe(name)}
+            await { !vm.recipesBusy }
+            check(vm.recipeError == null) { vm.recipeError.orEmpty() }
+            check(RecipeStore.load(app).any{it.name==name&&it.jpegQuality==87})
             RecipeStore.save(app,before);"saved and reloaded; original recipe list restored"
         }
         case("editor.sync_preserves_geometry") {

@@ -21,9 +21,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.spektralab.android.R
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,6 +49,7 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
     }
     var batch by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
+    var manageRecipes by rememberSaveable { mutableStateOf(false) }
     var activeQuickAction by rememberSaveable { mutableStateOf<String?>(null) }
     val processing = vm.busy || vm.isExporting || vm.isBatchExporting
     val exporting = vm.isExporting || vm.isBatchExporting
@@ -57,6 +61,7 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
     val batchLabel = "批量导出 · ${vm.photos.size}"
     Column(modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.weight(1f).widthIn(max = 600.dp).fillMaxWidth()
+            .clipToBounds()
             .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             ExportPhotoIdentity(vm)
             DarkroomChoiceStrip(listOf(singleLabel, batchLabel), if (batch) batchLabel else singleLabel, !processing) {
@@ -67,12 +72,7 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
             Text("文件格式", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
             Spacer(Modifier.height(4.dp))
             DarkroomChoiceStrip(listOf("JPEG", "PNG", "TIFF"), vm.exportFormat, !processing) { vm.exportFormat = it }
-            ExportSettingRow("分辨率",
-                if (vm.exportRes == 0) "原始尺寸" else "长边 ${vm.exportRes} px",
-                listOf("2048", "2560", "3840", "原始"), !processing,
-                optionLabel = { if (it == "原始") "原始尺寸" else "长边 $it px" }) {
-                vm.exportRes = it.toIntOrNull() ?: 0
-            }
+            ExportSizeControls(vm, !processing)
             ExportSettingRow("色彩空间",
                 if (vm.exportFormat == "TIFF") vm.exportColorSpace else "sRGB IEC61966-2.1",
                 if (vm.exportFormat == "TIFF") listOf("sRGB", "Display P3") else emptyList(), !processing) {
@@ -105,13 +105,8 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
             }
             ExportSettingDivider()
             if (advanced) {
-                val extension = when (vm.exportFormat) {
-                    "PNG" -> "png"
-                    "TIFF" -> "tiff"
-                    else -> "jpg"
-                }
                 ExportInfoRow("位深", if (vm.exportFormat == "TIFF") "RGB · 16 bit" else "RGB · 8 bit")
-                ExportInfoRow("文件命名", "Theia_时间戳.$extension")
+                ExportNamingControls(vm, !processing)
                 ExportInfoRow("保存位置", if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     "相册 / Pictures/Theia"
                 } else {
@@ -122,14 +117,14 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f), thickness = .5.dp)
                 Text("导出配方", Modifier.padding(top = 10.dp, bottom = 2.dp), fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.primary)
-                val currentRecipe = vm.recipes.firstOrNull { it.format == vm.exportFormat && it.res == vm.exportRes && it.colorSpace == vm.exportColorSpace && it.jpegQuality == vm.jpegQuality && it.keepCapture == vm.exportKeepCapture && it.keepLocation == vm.exportKeepLocation }
+                val currentRecipe = vm.recipes.firstOrNull { vm.currentExportRecipe(it.name) == it }
                 ExportSettingRow("当前配方", currentRecipe?.name ?: "自定义", vm.recipes.map { it.name }, !processing) { name ->
                     vm.recipes.firstOrNull { it.name == name }?.let { vm.applyRecipe(it) }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(
                         onClick = onSaveRecipe,
-                        enabled = !processing,
+                        enabled = !processing && !vm.recipesBusy,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         shape = TheiaShapes.control,
                         colors = ButtonDefaults.filledTonalButtonColors(
@@ -158,6 +153,11 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
                         Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.edit_copy_title), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+                TextButton(onClick = { manageRecipes = true }, enabled = !processing && !vm.recipesBusy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.export_recipes_manage))
+                }
+                vm.recipeError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.edit_copy_short_hint), fontSize = 10.sp, lineHeight = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
@@ -181,7 +181,7 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
             }
             if (batch && selectedCount == 0) Text("请选择至少一张照片", fontSize = 11.sp, lineHeight = 16.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(24.dp))
         }
         Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -197,6 +197,7 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+    if (manageRecipes) ExportRecipeManager(vm) { manageRecipes = false }
 }
 
 @Composable
@@ -223,7 +224,7 @@ private fun ExportPhotoIdentity(vm: EditorViewModel) {
         }
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(fileName.substringBeforeLast('.'), fontSize = 14.sp, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("$fileName · ${if (vm.exportRes == 0) "原始尺寸" else "${vm.exportRes} px"}",
+            Text("$fileName · ${sizeSummary(LocalContext.current, vm.exportRes, vm.exportCustomSize)}",
                 fontSize = 10.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("当前会话 · 共 ${vm.photos.size.coerceAtLeast(1)} 张", fontSize = 10.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.primary)
@@ -232,7 +233,7 @@ private fun ExportPhotoIdentity(vm: EditorViewModel) {
 }
 
 @Composable
-private fun ExportSettingRow(label: String, value: String, options: List<String>, enabled: Boolean,
+internal fun ExportSettingRow(label: String, value: String, options: List<String>, enabled: Boolean,
     optionLabel: (String) -> String = { it }, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {

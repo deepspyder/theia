@@ -134,9 +134,9 @@ class RenderHostService : Service() {
                         stage(work, "decoding")
                         // Same frozen native request, small enough to avoid the
                         // large-frame driver path. Never used as export pixels.
-                        val reference = if (request.raw && request.options.resolution == 0) {
+                        val reference = if (request.raw && request.options.renderResolution == 0) {
                             ExportSourceDecoder.open(this, engine, Uri.fromFile(path), true,
-                                request.edit.toParams(), request.options.copy(resolution = 640), ::checkCancelled)
+                                request.edit.toParams(), request.options.copy(resolution = 640, customSize = null), ::checkCancelled)
                             engine.renderExportResolved(request.realisation.film, request.realisation.print).use {
                                 RenderAppearance.capture(it, ::checkCancelled)
                             }

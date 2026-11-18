@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="export_size">分辨率</string>
+    <string name="export_size_original">原始尺寸</string>
+    <string name="export_size_custom">自定义尺寸</string>
+    <string name="export_size_long">长边</string>
+    <string name="export_size_short">短边</string>
+    <string name="export_size_mp">像素总量</string>
+    <string name="export_size_pixels">像素</string>
+    <string name="export_size_mp_unit">百万像素（MP）</string>
+    <string name="export_size_long_value">长边 %1$s px</string>
+    <string name="export_size_short_value">短边 %1$s px</string>
+    <string name="export_size_mp_value">%1$s MP</string>
+    <string name="export_size_help">按最终成片尺寸缩小，包含裁剪、旋转和片边；原片不足时保持原尺寸，不放大。</string>
+    <string name="export_size_pixel_error">请输入 1–65535 的整数。</string>
+    <string name="export_size_mp_error">请输入 0.01–200 之间的数值。</string>
+    <string name="export_apply">应用</string>
+    <string name="export_cancel">取消</string>
+    <string name="export_done">完成</string>
+    <string name="export_naming">文件命名</string>
+    <string name="export_naming_timestamp">Theia + 时间戳</string>
+    <string name="export_naming_tokens">自定义组合</string>
+    <string name="export_name_original">原名</string>
+    <string name="export_name_film">胶片</string>
+    <string name="export_name_paper">相纸</string>
+    <string name="export_name_date">日期</string>
+    <string name="export_name_separator">分隔符</string>
+    <string name="export_name_underscore">下划线</string>
+    <string name="export_name_hyphen">短横线</string>
+    <string name="export_name_space">空格</string>
+    <string name="export_name_help">点击添加或移除，按下方顺序命名。日期使用导出当天日期。重名时自动添加序号，保留已有文件。</string>
+    <string name="export_name_earlier">将%1$s前移</string>
+    <string name="export_name_later">将%1$s后移</string>
+    <string name="export_name_example">示例：%1$s</string>
+    <string name="export_recipes_manage">管理配方</string>
+    <string name="export_recipes_empty">暂无配方。可以将当前设置保存为配方。</string>
+    <string name="export_recipe_name">配方名</string>
+    <string name="export_recipe_rename">重命名</string>
+    <string name="export_recipe_delete">删除配方</string>
+    <string name="export_recipe_delete_title">删除“%1$s”？</string>
+    <string name="export_recipe_delete_help">仅移除这条导出配方，当前设置和已导出的照片会保留。</string>
+    <string name="export_recipe_name_error">请输入不超过 80 字的配方名，且不要与其他配方重名。</string>
+    <string name="export_recipe_storage_error">配方无法读取或保存，原有文件已保留。请检查存储空间或配方文件后重试。</string>
+    <string name="export_recipe_save_help">保存格式、尺寸、色彩、命名与元数据设置。同名配方会被替换。</string>
+</resources>

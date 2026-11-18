@@ -35,9 +35,10 @@ internal class PhotoExportPipeline(private val context: Context) {
                     check(); progress("encoding", 96f)
                     return withContext(Dispatchers.IO) {
                         task.phase(ExportJobStore.State.ENCODING)
-                        val path = encode(result, metadata, task)
+                        val sized = SizedRgba16Source.wrap(result, options.customSize, check)
+                        val path = encode(sized, metadata, task)
                         task.succeeded(path)
-                        Output(path, result.width, result.height)
+                        Output(path, sized.width, sized.height)
                     }
                 }
                 val cached = lease

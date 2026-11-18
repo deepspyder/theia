@@ -1,7 +1,9 @@
 {
   "date": "2026-11-18",
-  "batch": "按本地参考SpektraLab 2.4.2（b51e6723）重新核对已有功能与差距，新增26项分阶段清单并保留F01–F20。完成R01 RAW内容源访问恢复：同fd一次暂存、分段资产和取消/错误边界；真实跨UID provider在旧宿主自然失败，新宿主通过。其余25项按依赖排队，下一批R02自定输出尺寸/名称/配方管理。未改共享引擎或替换材料。",
+  "batch": "R02自定成片长边/短边/MP、文件命名组合与配方管理完成；单张/批量/软打样共用尺寸合同，旧四档保持，命名冻结与重名保护，原子配方持久化/未知字段保留已接通。57张实际导出独立完整解码通过，四配置UI与规范检查记录见docs/features/r02-export-options.md。本批不关闭F15专业色域/HEIF或F16完整续跑，下一项R03持久历史。",
   "validation": [
+    "R02补充完整应用总入口207/207及独立系统选图UI12/12通过。首轮206/207误选自身刚输出的DI TIFF，现改用测试自建JPEG并断言新URI、317×211实际解码和渲染；失败JSON/logcat/截图保留。普通非DNG TIFF/DI TIFF回导仍未接通，已明确列后续，不冒称修好。最终12专项/总入口组229条执行记录（含重复），另57独立图像与24原生截图；原证书V1/V2/V3和16KiB APK对齐通过。",
+    "2026-11-18 R02：57张PNG/JPEG/WebP/DNG/24MPNEF实际导出，含三自定限制、三容器、EXIF/裁剪/旋转/片边及四旧尺寸；独立二维积分+电脑完整RGB读回，19JPEG/19PNG全同、19TIFF中17全同/2最大差1个U16码值。批量冻结/同名去重/取消、117×79自定软打样不发布、配方损坏和未来版本保护、schema1/2/3及Unicode命名合同通过。4配置UI与底部边界复核、Debug/AndroidTest/Release/Lint零Error、14工具测试通过；205项原生库/运行资源全同。证据.tmp/r02-export/verification.json，仅API37 x86_64；首次原尺寸显影峰值和ARM实机仍待。",
     "2026-11-18 R01：21项RAW访问合同及原有file/FileProvider/pipe预览和导出逐值对照通过；真实跨UID提供器触发旧实现RAW open IO，新实现恢复正确。真实全尺寸解码取消、六种12/14bit Nikon NEF导入/截断拒绝通过，3组均PASS。Debug/AndroidTest/Release构建、14项工具单测与分包校验通过。记录raw-provider-recovery.md，证据.tmp/libraw-upgrade/raw-input-green2/summary.json；未拿到小米15Ultra失败DNG，真机待验。",
     "同步上批片边/取消修复：59组297去重用例通过，总入口207；128张NEF/DNG/JPEG/PNG/WebP、四尺寸、四编码/色域输出完整解码与同格式独立整图参考最大通道差0。严格128MiB绑定/8MiB窗口、20片边格式/模式、奇数几何及42项材料/随机/取消通过；98次Vulkan预检零失败。均仅API37 x86_64；曾发生空间不足和模拟器watchdog，现场与最终重跑结果保留，见raw-overscan-export-regression.md。",
     "上批原尺寸NEF JPEG95模拟器中位数（顺序各3次，非交错）：无片边冷10.886→10.822秒、缓存1.267→1.307秒、135整条11.872→11.092秒、扩展片门9.705→9.785秒。未缩图/减效果，不能推出手机加速；R01本批未重测此性能矩阵。",
@@ -287,7 +289,8 @@
       "evidence": [
         "无损RGBA16/CRC/租约/容量/取消原有测试通过",
         "生产单张/批量及同空间多格式缓存接入，原图/实际资源/APK指纹与保守参数键",
-        "24MP真实RAW全尺寸首次/命中输出哈希一致；读/写损坏与失效回归通过"
+        "24MP真实RAW全尺寸首次/命中输出哈希一致；读/写损坏与失效回归通过",
+        "R02自定请求复用原尺寸成片缓存，再按当前目标限额缩小；命名不进入像素身份。实际连续三限额/三容器输出与独立面积参考通过，未新增源/负片阶段缓存。"
       ],
       "remaining": [
         "显式随机seed合同与更多来源/任务覆盖；tile索引与可见纹理策略；设备预算/收益进一步校准"
@@ -297,7 +300,9 @@
         "app/src/main/java/com/spektralab/android/data/cache/RenderDiskCache.kt",
         "app/src/main/java/com/spektralab/android/data/cache/ExportRenderCache.kt",
         "app/src/androidTest/java/com/spektralab/android/ExportCacheAudit.kt",
-        "app/src/androidTest/java/com/spektralab/android/FullSizeCacheAudit.kt"
+        "app/src/androidTest/java/com/spektralab/android/FullSizeCacheAudit.kt",
+        "app/src/main/java/com/spektralab/android/data/export/PhotoExportPipeline.kt",
+        "docs/features/r02-export-options.md"
       ]
     },
     {
@@ -654,7 +659,8 @@
         "首轮已接入真实单张/批量：ExportFrameRequest、ExportCoordinator、原子任务/发布凭据日志、独立 :render host、只读描述符、取消/死亡、前台/CPU租约、恢复预览前设备释放确认。pending 与已提交凭据恢复、源变化拒绝提交等审计通过；不是完整任务重启续跑或全部导出入口迁移完成。",
         "2026-11-15 生产RAW原尺寸同冻结参数小图结构参考与异常结果拦截；256MiB/7天成片缓存、安装代际、24小时已知暂存回收，租约和原片/编辑/项目保护通过。只读签名不进入输出像素；真机和完整中断矩阵仍待。",
         "2026-11-18同步62de213片边窗口与灯台取消修复：严格128MiB绑定/8MiB窗口完成全尺寸片边，128张实际输出独立完整像素比较通过；59组297去重回归通过，仅模拟器。详见raw-overscan-export-regression.md。",
-        "R01已统一到预览/原尺寸解码/相机矩阵的RAW内容输入路径；只在open/metadata IO失败做一次同fd暂存，模拟器回归通过；非持久任务续跑。"
+        "R01已统一到预览/原尺寸解码/相机矩阵的RAW内容输入路径；只在open/metadata IO失败做一次同fd暂存，模拟器回归通过；非持久任务续跑。",
+        "R02冻结请求schema3兼容读取schema1/2；单张/批量自定成片长边/短边/MP、命名token排序/分隔符、重名保留与取消清理；57张实际输出及批量/软打样/持久发布恢复回归通过。非完整进程续跑。"
       ],
       "remaining": [
         "主进程退出/满盘/发布每个中断点与恢复UI；持久任务安全重启、去重和云端异常边界。",
@@ -676,7 +682,14 @@
         "app/src/androidTest/java/com/spektralab/android/RenderAppearanceAudit.kt",
         "app/src/androidTest/java/com/spektralab/android/CacheMaintenanceAudit.kt",
         "docs/compatibility/raw-export-windowed-v2-2026-11-15.md",
-        "docs/compatibility/raw-overscan-export-regression.md"
+        "docs/compatibility/raw-overscan-export-regression.md",
+        "app/src/main/java/com/spektralab/android/core/model/ExportSize.kt",
+        "app/src/main/java/com/spektralab/android/core/model/ExportNaming.kt",
+        "app/src/main/java/com/spektralab/android/data/export/SizedRgba16Source.kt",
+        "app/src/main/java/com/spektralab/android/feature/export/ExportSizeControls.kt",
+        "app/src/main/java/com/spektralab/android/feature/export/ExportNamingControls.kt",
+        "app/src/main/java/com/spektralab/android/feature/export/ExportRecipeManager.kt",
+        "docs/features/r02-export-options.md"
       ]
     },
     {
@@ -684,7 +697,8 @@
       "name": "文案资源化与四语言",
       "status": "in_progress",
       "evidence": [
-        "新编辑工具、照片图库、整理、版本及项目管理已使用默认values/strings.xml资源；新界面通过stringResource/getString引用。仅完成部分资源化基础，未实现四语言。"
+        "新编辑工具、照片图库、整理、版本及项目管理已使用默认values/strings.xml资源；新界面通过stringResource/getString引用。仅完成部分资源化基础，未实现四语言。",
+        "R02新增尺寸/命名/配方文案全部在values/export_options.xml，四配置真实界面通过；未将此视为四语言翻译完成。"
       ],
       "remaining": [
         "旧页面硬编码文案逐页迁移；补齐四语言资源与切换/回退、长文本和排版验收；新增文案持续资源化。",
@@ -694,7 +708,8 @@
         "app/src/main/res/values/strings.xml",
         "app/src/main/java/com/spektralab/android/feature/gallery/EditVersionsSheet.kt",
         "app/src/main/java/com/spektralab/android/feature/gallery/EditVersionsController.kt",
-        "docs/compatibility/pc-cinestill-parity.md"
+        "docs/compatibility/pc-cinestill-parity.md",
+        "app/src/main/res/values/export_options.xml"
       ]
     },
     {
@@ -729,7 +744,7 @@
     }
   ],
   "next": [
-    "按docs/upstream-2.4.2-android-roadmap.md继续26项任务：R01输入合同与模拟器已验收；下一批R02自定长/短边、MP、名称模板和导出配方管理，然后R03持久历史与R04白平衡吸管。新增多源/蒙版/水印等依赖和验收逐项列出，不能视为已经完成。",
+    "按docs/upstream-2.4.2-android-roadmap.md继续：R01/R02本范围模拟器验收完成；下一项R03持久撤销/重做历史，先revision/cursor/事务与旧记录兼容，再接编辑提交与进程重启测试，之后R04白平衡吸管。其余24项仍按依赖推进。",
     "小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。",
     "R10及F01/F02/F03/F16继续跨节点峰值预算、阶段缓存、全入口host、持久源身份/授权、完整中断/满盘/取消矩阵与安全重试。保留精确suspend/resume和ARM连续负载验收。",
     "R06/R07/R08/R09分别接成片几何与旁路、Decode场景曲线、真实专业色彩输出、全尺寸细节；F17非中性成片工作空间与PC独立对照继续，默认CineStill一致不代表所有后期表面一致。",

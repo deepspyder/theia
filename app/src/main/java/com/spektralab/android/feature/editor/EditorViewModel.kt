@@ -28,6 +28,8 @@ import com.spektralab.android.R
 import com.spektralab.android.core.model.ExportOptions
 import com.spektralab.android.core.model.EditorParams
 import com.spektralab.android.core.model.ExportRecipe
+import com.spektralab.android.core.model.ExportSize
+import com.spektralab.android.core.model.ExportNaming
 import com.spektralab.android.data.cache.ExportRenderCache
 import com.spektralab.android.data.export.ExportMetadata
 import com.spektralab.android.data.export.ExportPublisher
@@ -189,6 +191,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         private set
     var exportFormat by mutableStateOf("JPEG")
     var exportRes by mutableStateOf(2560)
+    var exportCustomSize by mutableStateOf<ExportSize?>(null)
+    var exportNaming by mutableStateOf(ExportNaming())
     var exportColorSpace by mutableStateOf("sRGB")
     var jpegQuality by mutableStateOf(95)
     private val exportPreferences = app.getSharedPreferences("export_metadata", android.content.Context.MODE_PRIVATE)
@@ -201,6 +205,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         get() = keepLocationState
         set(value) { keepLocationState = value; exportPreferences.edit().putBoolean("location", value).apply() }
     var recipes by mutableStateOf(RecipeStore.load(app))
+        private set
+    var recipesBusy by mutableStateOf(false)
+        private set
+    var recipeError by mutableStateOf(if (RecipeStore.readError(app)) app.getString(R.string.export_recipe_storage_error) else null)
         private set
     private val smartPreferences = app.getSharedPreferences("smart_develop", android.content.Context.MODE_PRIVATE)
     private var smartAutoState by mutableStateOf(smartPreferences.getBoolean("automatic", true))
@@ -1519,17 +1527,49 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         jpegQuality = recipe.jpegQuality.coerceIn(50, 100)
         exportKeepCapture = recipe.keepCapture
         exportKeepLocation = recipe.keepLocation
+        exportCustomSize = recipe.customSize
+        exportNaming = recipe.naming.copy(tokens = recipe.naming.tokens.toList())
     }
 
-    // 把当前导出设置保存为命名配方（同名覆盖）。
-    fun saveRecipe(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        val recipe = ExportRecipe(trimmed, exportFormat, exportRes, exportColorSpace, jpegQuality, exportKeepCapture, exportKeepLocation)
-        recipes = recipes.filter { it.name != trimmed } + recipe
-        RecipeStore.save(app, recipes)
-        toast("已保存配方: $trimmed")
+    fun currentExportRecipe(name: String = "") = ExportRecipe(name, exportFormat, exportRes,
+        exportColorSpace, jpegQuality, exportKeepCapture, exportKeepLocation, exportCustomSize,
+        exportNaming.copy(tokens = exportNaming.tokens.toList()))
+
+    private fun updateRecipes(updated: List<ExportRecipe>, renamed: Map<String, String> = emptyMap(), onSaved: () -> Unit = {}) {
+        if (recipesBusy || isExporting || isBatchExporting) return
+        recipesBusy = true
+        recipeError = null
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { RecipeStore.save(app, updated, renamed) }
+                recipes = updated
+                onSaved()
+            } catch (_: Exception) { recipeError = app.getString(R.string.export_recipe_storage_error) }
+            finally { recipesBusy = false }
+        }
     }
+
+    fun saveRecipe(name: String, onSaved: () -> Unit = {}) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed.length > 80 || trimmed.any(Char::isISOControl)) {
+            recipeError = app.getString(R.string.export_recipe_name_error); return
+        }
+        val recipe = currentExportRecipe(trimmed)
+        updateRecipes(recipes.filterNot { it.name.equals(trimmed, true) } + recipe,
+            recipes.firstOrNull { it.name.equals(trimmed, true) }?.let { mapOf(trimmed to it.name) }.orEmpty(), onSaved)
+    }
+
+    fun renameRecipe(recipe: ExportRecipe, name: String, onSaved: () -> Unit) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed.length > 80 || trimmed.any(Char::isISOControl) ||
+            recipes.any { it.name != recipe.name && it.name.equals(trimmed, true) }) {
+            recipeError = app.getString(R.string.export_recipe_name_error); return
+        }
+        updateRecipes(recipes.map { if (it == recipe) it.copy(name = trimmed) else it }, mapOf(trimmed to recipe.name), onSaved)
+    }
+
+    fun deleteRecipe(recipe: ExportRecipe, onSaved: () -> Unit) =
+        updateRecipes(recipes.filterNot { it == recipe }, onSaved = onSaved)
 
     // 以导出分辨率重新解码原图 → 全分辨率渲染 → 存盘 → 恢复预览会话。
     // 渲染期间并发轮询进度，支持取消。
@@ -2425,9 +2465,23 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // 软打样：按导出尺寸/色彩空间重渲染并显示，不保存文件。
     fun softProof() {
         val outputCs = if (exportFormat == "TIFF") exportColorSpace else "sRGB"
-        val previewLongEdge = if (exportRes <= 0) 3400 else exportRes.coerceAtMost(3400)
-        runExportAction("软打样", previewLongEdge, outputCs) { e, editParams, photo, revision, _ ->
-            val result = withContext(engineDispatcher) { e.render("full") }
+        val previewLongEdge = if (exportCustomSize != null) 0 else if (exportRes <= 0) 3400 else exportRes.coerceAtMost(3400)
+        runExportAction("软打样", previewLongEdge, outputCs) { e, editParams, photo, revision, options ->
+            val result = withContext(engineDispatcher) {
+                if (options.customSize == null) e.render("full")
+                else {
+                    val started = android.os.SystemClock.elapsedRealtime()
+                    e.renderExportOnce().use { full ->
+                        val sized = com.spektralab.android.data.export.SizedRgba16Source.wrap(full, options.customSize, ::checkExportCancellation)
+                        val preview = com.spektralab.android.data.export.SizedRgba16Source.wrap(sized,
+                            ExportSize(ExportSize.Kind.LONG_EDGE, 3400.0), ::checkExportCancellation)
+                        val pixels = ShortArray(preview.width * preview.height * 4)
+                        preview.readRows(0, preview.height, pixels)
+                        SpkResult(pixels, preview.width, preview.height, preview.width,
+                            (android.os.SystemClock.elapsedRealtime() - started).toDouble(), false, false, "")
+                    }
+                }
+            }
             checkExportCancellation()
             updateResult(result, outputCs, photo, revision, editParams)
             append("软打样: ${result.width}×${result.height}  ${result.elapsedMs}ms")
@@ -2490,13 +2544,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun captureExportOptions() = ExportOptions(
         exportFormat, exportRes, exportColorSpace, jpegQuality,
         exportKeepCapture, exportKeepLocation, lensCorrectionActive,
+        exportCustomSize, exportNaming.copy(tokens = exportNaming.tokens.toList()),
     )
 
     private fun saveBitmap(bitmap: Bitmap, suffix: String, options: ExportOptions,
                            metadata: ExportMetadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation)): String {
         val ext = if (options.format == "PNG") "png" else "jpg"
         val mime = if (options.format == "PNG") "image/png" else "image/jpeg"
-        val name = "Theia_$suffix.$ext"
+        val name = exportFileStem(suffix, params, options) + ".$ext"
         val fmt = if (options.format == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
 
         // 先压缩到临时文件（JPEG 需先落盘才能附加 EXIF）。
@@ -2519,26 +2574,42 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun encodeNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions, metadata: ExportMetadata): String {
+        val stem = exportFileStem(suffix, editParams, options)
         if (options.format == "PNG") {
-            return exportPublisher().write("Theia_$suffix.png", "image/png") {
+            return exportPublisher().write("$stem.png", "image/png") {
                 com.spektralab.android.data.export.PngRowWriter.write(result, grade(editParams), it, ::checkExportCancellation, metadata)
             }
         }
         if (options.format == "JPEG" && com.spektralab.android.data.export.JpegRowWriter.available) {
-            return exportPublisher().write("Theia_$suffix.jpg", "image/jpeg") {
+            return exportPublisher().write("$stem.jpg", "image/jpeg") {
                 com.spektralab.android.data.export.JpegRowWriter.write(app, result, grade(editParams), options.jpegQuality,
                     it, ::checkExportCancellation, metadata)
             }
         }
         if (options.format == "TIFF") {
             val icc = if (options.colorSpace == "Display P3") DisplayP3Icc.generate() else readSrgbIcc()
-            return exportPublisher().write("Theia_$suffix.tiff", "image/tiff") {
+            return exportPublisher().write("$stem.tiff", "image/tiff") {
                 TiffWriter.writeNative(result, grade(editParams), icc, it, ::checkExportCancellation,
                     metadata)
             }
         }
         val bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, grade(editParams), ::checkExportCancellation)
         try { return saveBitmap(bitmap, suffix, options, metadata) } finally { bitmap.recycle() }
+    }
+
+    private fun exportFileStem(suffix: String, edit: EditorParams, options: ExportOptions): String {
+        val frozen = activeExportTask?.request
+        val chosen = frozen?.edit?.toParams() ?: edit
+        val (films, papers) = StockCatalog.load(app)
+        return options.naming.stem(frozen?.sourceName ?: currentUri?.let(::queryDisplayName).orEmpty(),
+            films.firstOrNull { it.id == chosen.filmId }?.name ?: chosen.filmId,
+            papers.firstOrNull { it.id == chosen.paperId }?.name ?: chosen.paperId,
+            java.time.LocalDate.now().toString(), suffix)
+    }
+
+    fun exportNameExample(): String {
+        val extension = when (exportFormat) { "PNG" -> "png"; "TIFF" -> "tiff"; else -> "jpg" }
+        return exportFileStem(System.currentTimeMillis().toString(), params, captureExportOptions()) + ".$extension"
     }
 
     private fun exportPublisher() = ExportPublisher(app, ::checkExportCancellation) {

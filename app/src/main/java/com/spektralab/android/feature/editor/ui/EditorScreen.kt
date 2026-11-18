@@ -419,14 +419,19 @@ internal fun EditorScreen(
             onDismissRequest = { showSaveRecipeDialog = false },
             title = { Text("保存配方") },
             text = {
-                OutlinedTextField(value = recipeName, onValueChange = { recipeName = it }, label = { Text("配方名") }, singleLine = true)
+                Column {
+                    Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.export_recipe_save_help), style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = recipeName, onValueChange = { recipeName = it.take(80) }, label = { Text("配方名") }, singleLine = true, enabled = !vm.recipesBusy)
+                    vm.recipeError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.saveRecipe(recipeName)
-                    recipeName = ""
-                    showSaveRecipeDialog = false
-                }) { Text("保存") }
+                    vm.saveRecipe(recipeName) {
+                        recipeName = ""
+                        showSaveRecipeDialog = false
+                    }
+                }, enabled = !vm.recipesBusy && recipeName.isNotBlank()) { Text("保存") }
             },
             dismissButton = { TextButton(onClick = { showSaveRecipeDialog = false }) { Text("取消") } }
         )

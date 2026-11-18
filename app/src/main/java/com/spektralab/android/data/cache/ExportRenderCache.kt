@@ -99,7 +99,7 @@ internal class ExportRenderCache private constructor(private val context: Contex
                         options.correctLens,
                         if (params.grainActive || params.glareActive) realisation?.cacheSeed ?: 0L else 0L,
                         EditSnapshot.capture(params),
-                        options.resolution,
+                        options.renderResolution,
                     )
                     .key
             Request(key, source)
