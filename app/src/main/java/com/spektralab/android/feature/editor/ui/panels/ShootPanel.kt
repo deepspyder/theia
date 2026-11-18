@@ -1,5 +1,7 @@
 package com.spektralab.android.feature.editor.ui.panels
 
+import androidx.compose.ui.res.stringResource
+import com.spektralab.android.R
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +30,11 @@ private val FILM_FORMAT_MM = linkedMapOf(
 
 @Composable
 internal fun ShootPanel(vm: EditorViewModel) {
+    EditorSection(stringResource(R.string.scene_film_title), stringResource(R.string.scene_film_subtitle), initiallyExpanded = true) {
+        ToggleRow(stringResource(R.string.scene_film_enable), !vm.params.filmOff) { vm.params.filmOff = !it; vm.scheduleRender() }
+        if (vm.params.filmOff) Text(stringResource(R.string.scene_film_saved), style = MaterialTheme.typography.bodySmall)
+    }
+    if (!vm.params.filmOff) {
     EditorSection("画幅与配光", "胶片物理画幅 · 自动配光", initiallyExpanded = false) {
         OptionsDropdown(
             "胶片画幅",
@@ -58,6 +65,7 @@ internal fun ShootPanel(vm: EditorViewModel) {
         }
     }
 
+    }
     if (vm.currentIsRaw) {
         EditorSection("相机白平衡 (RAW)", "相机色温 · 镜头校正") {
         ToggleRow("镜头校正", vm.lensCorrectionActive && vm.matchedLens != null) { vm.toggleLensCorrection() }
@@ -73,7 +81,7 @@ internal fun ShootPanel(vm: EditorViewModel) {
         }
     }
 
-    EditorSection("镜头滤镜", "Wratten 彩色滤镜", initiallyExpanded = false) {
+    if (!vm.params.filmOff) EditorSection("镜头滤镜", "Wratten 彩色滤镜", initiallyExpanded = false) {
         OptionsDropdown("镜头滤镜", listOf("无", "w8", "w11", "w12", "w15", "w21", "w25", "w47", "w58"), vm.params.cameraFilter.ifEmpty { "无" }, Modifier.fillMaxWidth(), optionLabel = ::editorOptionLabel) {
             vm.params.cameraFilter = if (it == "无") "" else it; vm.scheduleRender()
         }

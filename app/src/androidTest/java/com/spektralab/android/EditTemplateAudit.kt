@@ -29,13 +29,16 @@ internal object EditTemplateAudit {
             colorWheels = ColorWheels(shadows = WheelAdjustment(220f, 25f, -8f))
             channelMixer = ChannelMixer(red = MixerRow(10f, -15f, 5f))
             colorAdjustments = ColorAdjustments.NEUTRAL.withVibrance(20f)
+            filmOff = true; perspectiveVertical = 11f; perspectiveHorizontal = -9f
+            finishedCrop = com.spektralab.android.core.geometry.FinishedCrop(.1f, .15f, .8f, .7f)
         }
         val target = EditorParams().apply {
             cropY = .15f; cropH = .8f; rotationDeg = 12f; flipH = true
             overscanCameraSeed = 111; overscanFrameSeed = 222; overscanFrameNumber = 31; overscanFNumber = 5.6f
             dateImprintText = "2025-10-06"; dateImprintDataText = "ISO 200"; smartDevelopSummary = "target analysis"
         }
-        val known = base.toJson().keys().asSequence().toSet() + setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels")
+        val known = base.toJson().keys().asSequence().toSet() + setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
+            "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop")
         val grouped = EditGroup.entries.flatMap { it.fields }
         check(grouped.size == grouped.distinct().size)
         check(grouped.toSet().intersect(EditGroup.LOCAL_FIELDS).isEmpty())
@@ -136,10 +139,15 @@ internal object EditTemplateAudit {
         val updated = EditorParams().apply { brightness = 18f }.toJson().toString()
         check(runCatching { EditStore.saveBatch(isolated, listOf(EditStore.BatchEdit(first, a.json, updated), EditStore.BatchEdit(second, b.json, updated))) }.isFailure)
         check(EditStore.load(isolated, first)!!.brightness == 0f)
-        EditStore.save(isolated, first, EditorParams.fromJson(JSONObject(a.json!!).put("future_extension", JSONObject().put("keep", true))))
+        EditStore.save(isolated, first, EditorParams.fromJson(JSONObject(a.json!!).put("future_extension", JSONObject().put("keep", true))).apply {
+            filmOff = true; perspectiveVertical = 17f; perspectiveHorizontal = -9f
+            finishedCrop = com.spektralab.android.core.geometry.FinishedCrop(.1f, .1f, .8f, .8f)
+        })
         val original = EditStore.loadForTransfer(isolated, first)
         EditStore.saveBatch(isolated, listOf(EditStore.BatchEdit(first, original.json, updated)))
         check(EditStore.load(isolated, first)!!.brightness == 18f)
+        val cleared = EditStore.load(isolated, first)!!
+        check(!cleared.filmOff && cleared.perspectiveVertical == 0f && cleared.perspectiveHorizontal == 0f && cleared.finishedCrop.isFull)
         check(EditStore.load(isolated, first)!!.toJson().getJSONObject("future_extension").getBoolean("keep"))
         val saved = EditStore.saveIfAbsent(isolated, first, EditorParams().apply { brightness = -30f })
         check(saved.brightness == 18f && EditStore.load(isolated, first)!!.brightness == 18f)

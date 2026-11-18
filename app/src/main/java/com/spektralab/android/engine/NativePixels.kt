@@ -46,16 +46,26 @@ class NativeRenderResult internal constructor(
     override val width: Int,
     override val height: Int,
 ) : Closeable, Rgba16Source {
+    private var scene = false
+    internal constructor(handle: Long, width: Int, height: Int, scene: Boolean) : this(handle, width, height) {
+        this.scene = scene
+    }
     override fun readRows(y: Int, rows: Int, destination: ShortArray) {
         check(handle != 0L)
         require(y >= 0 && rows > 0 && y.toLong() + rows <= height && destination.size.toLong() >= width.toLong() * rows * 4)
-        nativeReadRows(handle, y, rows, destination)
+        if (scene) nativeSceneReadRows(handle, y, rows, destination)
+        else nativeReadRows(handle, y, rows, destination)
     }
 
     override fun close() {
-        if (handle != 0L) { nativeRelease(handle); handle = 0L }
+        if (handle != 0L) {
+            if (scene) nativeSceneRelease(handle) else nativeRelease(handle)
+            handle = 0L
+        }
     }
 
     private external fun nativeReadRows(handle: Long, y: Int, rows: Int, destination: ShortArray)
     private external fun nativeRelease(handle: Long)
+    private external fun nativeSceneReadRows(handle: Long, y: Int, rows: Int, destination: ShortArray)
+    private external fun nativeSceneRelease(handle: Long)
 }

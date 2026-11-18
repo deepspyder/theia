@@ -1,9 +1,12 @@
 package com.spektralab.android.feature.editor.ui.panels
 
+import androidx.compose.ui.res.stringResource
+import com.spektralab.android.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -85,11 +88,28 @@ internal fun GradePanel(vm: EditorViewModel) {
             }
         }
         SliderRow("旋转/拉直", vm.params.rotationDeg, -45f..45f, "%+.1f°") { vm.params.rotationDeg = it; vm.scheduleRender() }
-        OutlinedButton(onClick = vm::beginCrop, enabled = vm.hasPhoto && !vm.busy && !vm.params.overscanActive,
+        OutlinedButton(onClick = vm::beginCrop, enabled = vm.hasPhoto && !vm.busy && (!vm.params.overscanActive || vm.params.filmOff),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Icon(Icons.Rounded.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("自由裁剪")
+        }
+        SliderRow(stringResource(R.string.scene_vertical), vm.params.perspectiveVertical, -30f..30f, "%+.1f°") {
+            vm.params.perspectiveVertical = it; vm.scheduleRender()
+        }
+        SliderRow(stringResource(R.string.scene_horizontal), vm.params.perspectiveHorizontal, -30f..30f, "%+.1f°") {
+            vm.params.perspectiveHorizontal = it; vm.scheduleRender()
+        }
+        OutlinedButton(onClick = { vm.params.perspectiveVertical = 0f; vm.params.perspectiveHorizontal = 0f; vm.scheduleRender() },
+            enabled = !vm.busy && (vm.params.perspectiveVertical != 0f || vm.params.perspectiveHorizontal != 0f),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.scene_reset_perspective)) }
+    }
+    EditorSection(stringResource(R.string.scene_finished_title), stringResource(R.string.scene_finished_subtitle), initiallyExpanded = true) {
+        OutlinedButton(onClick = vm::beginFinishedCrop, enabled = vm.hasPhoto && !vm.busy,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.scene_finished_action)) }
+        if (!vm.params.finishedCrop.isFull) {
+            OutlinedButton(onClick = { vm.params.finishedCrop = com.spektralab.android.core.geometry.FinishedCrop.FULL; vm.scheduleGrade() },
+                enabled = !vm.busy, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).heightIn(min = 48.dp)) { Text(stringResource(R.string.scene_finished_reset)) }
         }
     }
 }

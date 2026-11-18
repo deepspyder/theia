@@ -15,6 +15,7 @@ internal class SizedRgba16Source private constructor(
     override val height: Int,
     private val checkCancelled: () -> Unit,
 ) : Rgba16Source {
+    override val gradeApplied: Boolean get() = source.gradeApplied
     private val row = ShortArray(source.width * 4)
     private val horizontal = DoubleArray(width * 4)
     private val sum = DoubleArray(width * 4)

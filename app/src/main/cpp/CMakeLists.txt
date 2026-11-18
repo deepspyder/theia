@@ -21,6 +21,7 @@ set(SPK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/jni_bridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/curve_grade.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/jpeg_encode.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/scene_session.cpp
 )
 set_source_files_properties(curve_grade.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 

@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.spektralab.android.core.geometry.computeCenteredCropByAspect
 import com.spektralab.android.core.geometry.overscanGateAspect
+import com.spektralab.android.core.geometry.FinishedCrop
 import com.spektralab.android.engine.StockCatalog
 import org.json.JSONObject
 
@@ -24,6 +25,10 @@ class EditorParams {
     // 胶片 & 相纸
     var filmId by mutableStateOf("kodak_portra_400")
     var paperId by mutableStateOf("kodak_portra_endura")
+    var filmOff by mutableStateOf(false)
+    var perspectiveVertical by mutableFloatStateOf(0f)
+    var perspectiveHorizontal by mutableFloatStateOf(0f)
+    var finishedCrop by mutableStateOf(FinishedCrop.FULL)
     var smartDevelopStyle by mutableStateOf("")
     var smartDevelopSummary by mutableStateOf("")
     var smartDevelopVersion by mutableStateOf(0)
@@ -253,6 +258,10 @@ class EditorParams {
         .put("date_imprint_inset_y", dateImprintInsetY.toDouble())
         .put("date_imprint_data_text", dateImprintDataText)
         .apply {
+            if (filmOff) put("film_off",true)
+            if (perspectiveVertical != 0f) put("perspective_vertical",perspectiveVertical.toDouble())
+            if (perspectiveHorizontal != 0f) put("perspective_horizontal",perspectiveHorizontal.toDouble())
+            if (!finishedCrop.isFull) put("finished_crop",finishedCrop.toJson())
             preservedFields.forEach { (key, value) -> put(key, org.json.JSONTokener(value).nextValue()) }
             if (unreadableColorWheels != null) put("color_wheels", org.json.JSONTokener(unreadableColorWheels!!).nextValue())
             else if (!colorWheels.isDefault) put("color_wheels", colorWheels.toJson())
@@ -273,12 +282,16 @@ class EditorParams {
         copied.cropX = cropX; copied.cropY = cropY
         copied.cropW = cropW; copied.cropH = cropH
         copied.quarterTurns = quarterTurns; copied.flipH = flipH; copied.flipV = flipV; copied.rotationDeg = rotationDeg
+        copied.perspectiveVertical = perspectiveVertical; copied.perspectiveHorizontal = perspectiveHorizontal
+        copied.finishedCrop = finishedCrop
         copyAllFrom(copied)
     }
 
     private fun copyAllFrom(p: EditorParams) {
         preservedFields = p.preservedFields
         filmId = p.filmId; paperId = p.paperId; exposureEv = p.exposureEv
+        filmOff = p.filmOff; perspectiveVertical = p.perspectiveVertical; perspectiveHorizontal = p.perspectiveHorizontal
+        finishedCrop = p.finishedCrop
         smartDevelopStyle=p.smartDevelopStyle;smartDevelopSummary=p.smartDevelopSummary;smartDevelopVersion=p.smartDevelopVersion
         autoExposureMethod = p.autoExposureMethod; autoExposure = p.autoExposure; filmFormatMm = p.filmFormatMm
         cameraWbKelvin = p.cameraWbKelvin; cameraWbTint = p.cameraWbTint; cameraWbCustom = p.cameraWbCustom
@@ -322,7 +335,8 @@ class EditorParams {
     companion object {
         private val knownFields: Set<String> by lazy {
             EditorParams().toJson().keys().asSequence().toSet() +
-                setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels")
+                setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
+                    "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop")
         }
         /** Same per-film RMS calibration as Windows desktop/shared/params.ts. */
         fun ownGrain(stock: String): Float = when (stock) {
@@ -335,6 +349,10 @@ class EditorParams {
         /** 从 sidecar JSON 恢复参数（缺字段用默认值）。 */
         fun fromJson(json: JSONObject): EditorParams {
             HalationModel.requireReadable(json)
+            require(!json.has("film_off") || json.get("film_off") is Boolean)
+            for (key in listOf("perspective_vertical","perspective_horizontal"))
+                require(!json.has(key) || json.get(key) is Number && json.getDouble(key).isFinite() && json.getDouble(key) in -30.0..30.0)
+            require(!json.has("finished_crop") || json.get("finished_crop") is JSONObject)
             val p = EditorParams()
             p.preservedFields = json.keys().asSequence().filterNot { it in knownFields }.associateWith { key ->
                 org.json.JSONArray().put(json.get(key)).toString().let { it.substring(1, it.length - 1) }
@@ -348,6 +366,10 @@ class EditorParams {
             p.autoExposureMethod = json.optString("auto_exposure_method", "balanced")
             p.autoExposure = json.optBoolean("auto_exposure", true)
             p.filmFormatMm = json.optDouble("film_format_mm", 36.0).toFloat()
+            p.filmOff = json.optBoolean("film_off",false)
+            p.perspectiveVertical = json.optDouble("perspective_vertical",0.0).toFloat()
+            p.perspectiveHorizontal = json.optDouble("perspective_horizontal",0.0).toFloat()
+            p.finishedCrop = json.optJSONObject("finished_crop")?.let(FinishedCrop::fromJson) ?: FinishedCrop.FULL
             p.cameraWbKelvin = json.optDouble("camera_wb_kelvin", 5500.0).toFloat()
             p.cameraWbTint = json.optDouble("camera_wb_tint", 0.0).toFloat()
             p.cameraWbCustom = json.optBoolean("camera_wb_custom", false)
@@ -463,7 +485,7 @@ class EditorParams {
 
     private fun baseJson(srcW: Int, srcH: Int): JSONObject {
         // 片边开启时，把源图居中裁到该画幅的门径（gate）比例，否则用用户的裁剪。
-        val c = if (overscanActive) {
+        val c = if (overscanActive && !filmOff) {
             computeCenteredCropByAspect(overscanGateAspect(overscanFormat, srcW, srcH), srcW, srcH)
         } else {
             floatArrayOf(cropX, cropY, cropW, cropH)
@@ -513,7 +535,7 @@ class EditorParams {
             .put("geometry_crop_w", c[2].toDouble())
             .put("geometry_crop_h", c[3].toDouble())
             .put("camera_filter", cameraFilter)
-            .put("overscan_active", overscanActive)
+            .put("overscan_active", overscanActive && !filmOff)
             .put("overscan_format", overscanFormat)
             .put("overscan_mode", overscanMode)
             .put("overscan_gate", overscanGate)
@@ -529,7 +551,7 @@ class EditorParams {
             .put("overscan_fog", overscanFog.toDouble())
             .put("overscan_leaks", overscanLeaks.toDouble())
             .put("overscan_f_number", overscanFNumber.toDouble())
-            .put("date_imprint_active", dateImprintActive)
+            .put("date_imprint_active", dateImprintActive && !filmOff)
             .put("date_imprint_text", if (dateImprintStyle == "data") dateImprintDataText else dateImprintText)
             .put("date_imprint_style", dateImprintStyle)
             .put("date_imprint_placement", dateImprintPlacement)
@@ -540,6 +562,11 @@ class EditorParams {
             .put("date_imprint_inset_y", dateImprintInsetY.toDouble())
             .put("date_imprint_data_text", dateImprintDataText)
             .apply {
+                if (filmOff) put("android_film_off",true)
+                if (perspectiveVertical != 0f || perspectiveHorizontal != 0f) {
+                    put("android_perspective_vertical",perspectiveVertical.toDouble())
+                    put("android_perspective_horizontal",perspectiveHorizontal.toDouble())
+                }
                 if (StockCatalog.isMonochrome(filmId) && StockCatalog.isMonochrome(paperId)) {
                     put("c_filter_neutral", 0.0); put("m_filter_neutral", 0.0); put("y_filter_neutral", 68.0)
                 }

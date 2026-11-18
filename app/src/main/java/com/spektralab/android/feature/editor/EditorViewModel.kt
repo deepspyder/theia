@@ -240,6 +240,40 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     var hasPhoto by mutableStateOf(false)
         private set
     var isCropping by mutableStateOf(false)
+    var croppingFinished by mutableStateOf(false)
+        private set
+    var cropWorkspaceBitmap by mutableStateOf<Bitmap?>(null)
+        private set
+    private var finishedCropStart = com.spektralab.android.core.geometry.FinishedCrop.FULL
+    val cropSelection: FloatArray get() = if (croppingFinished) params.finishedCrop.let {
+        floatArrayOf(it.x, it.y, it.width, it.height)
+    } else floatArrayOf(params.cropX, params.cropY, params.cropW, params.cropH)
+
+    fun updateCropSelection(x: Float, y: Float, w: Float, h: Float) {
+        if (croppingFinished) params.finishedCrop = com.spektralab.android.core.geometry.FinishedCrop(x, y, w, h)
+        else { params.cropX = x; params.cropY = y; params.cropW = w; params.cropH = h }
+        if (cropAspect == "原始") cropAspect = "自定义"
+    }
+
+    fun beginFinishedCrop() {
+        if (busy || isExporting || isBatchExporting || isCropping || isApplyingEdits) return
+        val result = lastResult ?: return
+        val edit = params.copy().apply { finishedCrop = com.spektralab.android.core.geometry.FinishedCrop.FULL }
+        val photo = photoGeneration
+        val revision = renderGeneration
+        busy = true
+        viewModelScope.launch {
+            var bitmap: Bitmap? = null
+            try {
+                bitmap = withContext(Dispatchers.Default) { convertToBitmap(result, edit, resultColorSpace) }
+                if (photo != photoGeneration || revision != renderGeneration) return@launch
+                cropWorkspaceBitmap = bitmap; bitmap = null
+                finishedCropStart = params.finishedCrop
+                croppingFinished = true; cropAspect = "自定义"; isCropping = true
+            } catch (error: Exception) { fail(app.getString(R.string.scene_crop_error, error.message.orEmpty())) }
+            finally { bitmap?.recycle(); if (photo == photoGeneration) busy = false }
+        }
+    }
     var cropAspect by mutableStateOf("原始")
     var isExporting by mutableStateOf(false)
         private set
@@ -762,19 +796,29 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (isApplyingEdits) return
         params.cropX = 0f; params.cropY = 0f; params.cropW = 1f; params.cropH = 1f
         params.quarterTurns = 0; params.flipH = false; params.flipV = false; params.rotationDeg = 0f
+        params.perspectiveVertical = 0f; params.perspectiveHorizontal = 0f
+        params.finishedCrop = com.spektralab.android.core.geometry.FinishedCrop.FULL
         cropAspect = "原始"
     }
 
     /** Enter the dedicated crop workspace and remember the pre-edit frame. */
     fun beginCrop() {
         if (isApplyingEdits) return
-        if (isCropping || sourceBitmap == null || params.overscanActive) return
+        if (busy || isExporting || isBatchExporting || isCropping || sourceBitmap == null || (params.overscanActive && !params.filmOff)) return
+        croppingFinished = false
+        cropWorkspaceBitmap = com.spektralab.android.core.geometry.Perspective.preview(checkNotNull(sourceBitmap),
+            params.perspectiveVertical, params.perspectiveHorizontal)
         cropEditStart = floatArrayOf(params.cropX, params.cropY, params.cropW, params.cropH)
         isCropping = true
     }
 
     /** Discard the current crop gesture and restore the frame on entry. */
     fun cancelCrop() {
+        if (croppingFinished) {
+            params.finishedCrop = finishedCropStart
+            croppingFinished = false; isCropping = false; releaseCropBitmap()
+            return
+        }
         val start = cropEditStart
         if (start != null && start.size == 4) {
             params.cropX = start[0]; params.cropY = start[1]
@@ -783,9 +827,20 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
         cropEditStart = null
         isCropping = false
+        releaseCropBitmap()
+    }
+
+    private fun releaseCropBitmap() {
+        val bitmap = cropWorkspaceBitmap
+        cropWorkspaceBitmap = null
+        if (bitmap !== sourceBitmap) bitmap?.recycle()
     }
 
     fun resetCropSelection() {
+        if (croppingFinished) {
+            params.finishedCrop = com.spektralab.android.core.geometry.FinishedCrop.FULL
+            cropAspect = "自定义"; return
+        }
         params.cropX = 0f; params.cropY = 0f; params.cropW = 1f; params.cropH = 1f
         cropAspect = "原始"
     }
@@ -793,48 +848,36 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     /** Commit the crop overlay as a bounded geometry edit and re-render it. */
     fun finishCrop() {
         if (!isCropping) return
+        if (croppingFinished) {
+            isCropping = false; croppingFinished = false; releaseCropBitmap()
+            scheduleGrade(); return
+        }
+        releaseCropBitmap()
         // Match the overlay's 2% minimum; a second 10% clamp changed valid selections.
         params.cropW = params.cropW.coerceIn(0.02f, 1f)
         params.cropH = params.cropH.coerceIn(0.02f, 1f)
         params.cropX = params.cropX.coerceIn(0f, 1f - params.cropW)
         params.cropY = params.cropY.coerceIn(0f, 1f - params.cropH)
         isCropping = false
+        croppingFinished = false
+        releaseCropBitmap()
         cropEditStart = null
         scheduleRender()
     }
 
     // Layer 2 调色参数（应用侧）：白平衡 + 曝光 + 对比度/亮度 + 高光/阴影 + 黑点/白点 + 饱和度 + 色彩平衡。
-    private fun grade(p: EditorParams = params): Grade {
-        fun zone(temp: Float, tint: Float) = floatArrayOf(0.18f * temp, -0.12f * tint, -0.18f * temp)
-        return Grade(
-            1f + p.temperature * 0.18f,                      // Windows layer2Uniforms
-            1f - p.tint * 0.12f,
-            1f - p.temperature * 0.18f,
-            Math.pow(2.0, p.gradeExposure.toDouble()).toFloat(),  // exposureGain
-            p.contrast / 100f,
-            p.brightness / 100f,
-            1f + p.saturation / 100f,
-            p.highlights / 100f,
-            p.shadows / 100f,
-            p.blackPoint / 100f,
-            p.whitePoint / 100f,
-            zone(p.cbShadowTemp / 100f, p.cbShadowTint / 100f),
-            zone(p.cbMidTemp / 100f, p.cbMidTint / 100f),
-            zone(p.cbHighTemp / 100f, p.cbHighTint / 100f),
-            p.vignetteAmount / 100f, p.vignetteSize / 100f, p.vignetteFeather / 100f, p.toneCurves, p.colorAdjustments,
-            p.channelMixer, p.colorWheels,
-        )
-    }
+    private fun grade(p: EditorParams = params): Grade = com.spektralab.android.engine.EditorGrade.from(p)
 
     // 把渲染结果（rgba16）过一遍 Layer 2 调色，转成显示用 Bitmap。
     private fun convertToBitmap(result: SpkResult, editParams: EditorParams = params, colorSpace: String = "sRGB"): Bitmap {
-        return ColorPipeline.applyGradeToBitmap(result.rgba16, result.width, result.height,
-            grade(editParams), colorSpace).first
+        return convertPreview(result, editParams, colorSpace).first
     }
 
     private fun convertPreview(result: SpkResult, editParams: EditorParams, colorSpace: String, checkCancelled: () -> Unit = {}): Pair<Bitmap, Histogram> {
-        return ColorPipeline.applyGradeToBitmap(result.rgba16, result.width, result.height,
-            grade(editParams), colorSpace, checkCancelled)
+        return if (editParams.finishedCrop.isFull) ColorPipeline.applyGradeToBitmap(result.rgba16,
+            result.width, result.height, grade(editParams), colorSpace, checkCancelled)
+        else com.spektralab.android.engine.FinishedPreview.render(result, grade(editParams),
+            editParams.finishedCrop, colorSpace, checkCancelled)
     }
 
     // 更新渲染结果 + 直方图 + 显示位图（一次渲染落地后调用）。
@@ -1376,7 +1419,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 engineTasks.onEngine {
                     if (photo != photoGeneration || generation != renderGeneration) return@onEngine
                     try {
-                        e.setChangedParams(delta)
+                        if (e.requiresSourceReopen(delta)) {
+                            val pixels = checkNotNull(previewLinear) { "Source pixels unavailable" }
+                            e.open(pixels, previewW, previewH, 3,
+                                editParams.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
+                        } else e.setChangedParams(delta)
                         // UI post edits may be newer than this debounced native request. Keep saves
                         // ordered with those edits instead of writing the older render snapshot.
                         val saved = withContext(Dispatchers.Main.immediate) {
@@ -1493,7 +1540,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun nativeAnalysisAllowed() = hasPhoto && !busy && !isExporting && !isBatchExporting && !isApplyingEdits
+    private fun nativeAnalysisAllowed() = !params.filmOff && hasPhoto && !busy && !isExporting && !isBatchExporting && !isApplyingEdits
 
     /** Bind read-only native analysis to the exact photo and committed settings that requested it. */
     private fun runNativeAnalysis(kind: String, query: EngineClient.() -> String, apply: (JSONObject) -> Unit) {
@@ -1823,7 +1870,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                             } else {
                                 val p = input.params.toParams()
                                 val geometry = JSONObject(p.openJson(input.evidence.width.coerceAtLeast(1), input.evidence.height.coerceAtLeast(1)))
-                                val crop = minOf(geometry.optDouble("geometry_crop_w", 1.0), geometry.optDouble("geometry_crop_h", 1.0)).coerceAtLeast(.01)
+                                val crop = (minOf(geometry.optDouble("geometry_crop_w", 1.0), geometry.optDouble("geometry_crop_h", 1.0)) * minOf(p.finishedCrop.width, p.finishedCrop.height)).coerceAtLeast(.0001)
                                 val resolution = kotlin.math.ceil(input.requestedEdge / crop).toInt().coerceAtLeast(1)
                                 check(resolution <= com.spektralab.android.data.export.TableExportSession.MAX_INPUT_EDGE) { "TABLE_EXPORT_CAPACITY" }
                                 val options = ExportOptions("PNG", resolution, "sRGB", 100, false, false, correctLens)
@@ -1835,7 +1882,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                                     val cached = lease
                                     if (cached != null) withContext(Dispatchers.IO) {
                                         com.spektralab.android.data.export.TableExportSession.checkSourceSize(cached.width, cached.height)
-                                        bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(cached, grade(p), ::checkExportCancellation)
+                                        val finished = com.spektralab.android.data.export.FinishedRgba16Source.wrap(cached, grade(p), p.finishedCrop, ::checkExportCancellation)
+                                        bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(finished,
+                                            if (finished.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(p), ::checkExportCancellation)
                                     } else withContext(engineDispatcher) {
                                         RenderAdmission.check(app); needsRestore = true
                                         openExportSource(e, uri, p, resolution, "sRGB", options)
@@ -1845,7 +1894,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                                             withContext(Dispatchers.IO) {
                                                 if (cacheRequest != null) renderCache.store(cacheRequest, uri, result, ::checkExportCancellation)
                                                 com.spektralab.android.data.export.TableExportSession.checkSourceSize(result.width, result.height)
-                                                bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, grade(p), ::checkExportCancellation)
+                                                val finished = com.spektralab.android.data.export.FinishedRgba16Source.wrap(result, grade(p), p.finishedCrop, ::checkExportCancellation)
+                                        bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(finished,
+                                            if (finished.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(p), ::checkExportCancellation)
                                             }
                                         } } finally { tableNativeRendering = false }
                                     }
@@ -1980,6 +2031,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         latitudeDelta = null
         latitudeCanApply = false
         isCropping = false
+        croppingFinished = false
+        releaseCropBitmap()
         cropEditStart = null
         hasPhoto = false
         canUndo = false
@@ -2544,6 +2597,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // DI TIFF：按导出分辨率读取原片，输出 Cineon log 16-bit，不套 Layer 2、不嵌 ICC。
     fun exportDi() {
+        if (params.filmOff) { toast(app.getString(R.string.scene_di_unavailable)); return }
         runExportAction("DI TIFF", exportRes, "sRGB") { e, _, _, _, options ->
             val result = withContext(engineDispatcher) { e.renderDigitalIntermediate() }
             try {
@@ -2566,6 +2620,33 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val outputCs = if (exportFormat == "TIFF") exportColorSpace else "sRGB"
         val previewLongEdge = if (exportCustomSize != null) 0 else if (exportRes <= 0) 3400 else exportRes.coerceAtMost(3400)
         runExportAction("软打样", previewLongEdge, outputCs) { e, editParams, photo, revision, options ->
+            if (!editParams.finishedCrop.isFull) {
+                var proof: Bitmap? = null
+                try {
+                    val graded = withContext(engineDispatcher) {
+                        e.renderExportOnce().use { full ->
+                            val finished = com.spektralab.android.data.export.FinishedRgba16Source.wrap(full, grade(editParams), editParams.finishedCrop, ::checkExportCancellation)
+                            val sized = com.spektralab.android.data.export.SizedRgba16Source.wrap(finished, options.customSize, ::checkExportCancellation)
+                            val preview = com.spektralab.android.data.export.SizedRgba16Source.wrap(sized,
+                                ExportSize(ExportSize.Kind.LONG_EDGE, 3400.0), ::checkExportCancellation)
+                            val pixels = ShortArray(preview.width * preview.height * 4)
+                            preview.readRows(0, preview.height, pixels)
+                            ColorPipeline.applyGradeToBitmap(pixels, preview.width, preview.height,
+                                com.spektralab.android.engine.EditorGrade.identity, outputCs, ::checkExportCancellation)
+                        }
+                    }
+                    proof = graded.first
+                    checkExportCancellation()
+                    withContext(Dispatchers.Main.immediate) {
+                        if (photo == photoGeneration && revision == renderGeneration) {
+                            rendered = graded.first; histogram = graded.second; proof = null
+                            rememberDevelopedPreview(graded.first)
+                        }
+                    }
+                    append("软打样: ${graded.first.width}×${graded.first.height}")
+                } finally { proof?.recycle() }
+                return@runExportAction
+            }
             val result = withContext(engineDispatcher) {
                 if (options.customSize == null) e.render("full")
                 else {
@@ -2673,26 +2754,27 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun encodeNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions, metadata: ExportMetadata): String {
+        val outputGrade = if (result.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(editParams)
         val stem = exportFileStem(suffix, editParams, options)
         if (options.format == "PNG") {
             return exportPublisher().write("$stem.png", "image/png") {
-                com.spektralab.android.data.export.PngRowWriter.write(result, grade(editParams), it, ::checkExportCancellation, metadata)
+                com.spektralab.android.data.export.PngRowWriter.write(result, outputGrade, it, ::checkExportCancellation, metadata)
             }
         }
         if (options.format == "JPEG" && com.spektralab.android.data.export.JpegRowWriter.available) {
             return exportPublisher().write("$stem.jpg", "image/jpeg") {
-                com.spektralab.android.data.export.JpegRowWriter.write(app, result, grade(editParams), options.jpegQuality,
+                com.spektralab.android.data.export.JpegRowWriter.write(app, result, outputGrade, options.jpegQuality,
                     it, ::checkExportCancellation, metadata)
             }
         }
         if (options.format == "TIFF") {
             val icc = if (options.colorSpace == "Display P3") DisplayP3Icc.generate() else readSrgbIcc()
             return exportPublisher().write("$stem.tiff", "image/tiff") {
-                TiffWriter.writeNative(result, grade(editParams), icc, it, ::checkExportCancellation,
+                TiffWriter.writeNative(result, outputGrade, icc, it, ::checkExportCancellation,
                     metadata)
             }
         }
-        val bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, grade(editParams), ::checkExportCancellation)
+        val bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, outputGrade, ::checkExportCancellation)
         try { return saveBitmap(bitmap, suffix, options, metadata) } finally { bitmap.recycle() }
     }
 

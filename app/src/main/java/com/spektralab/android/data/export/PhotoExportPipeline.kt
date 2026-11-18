@@ -35,7 +35,10 @@ internal class PhotoExportPipeline(private val context: Context) {
                     check(); progress("encoding", 96f)
                     return withContext(Dispatchers.IO) {
                         task.phase(ExportJobStore.State.ENCODING)
-                        val sized = SizedRgba16Source.wrap(result, options.customSize, check)
+                        val params = task.request.edit.toParams()
+                        val finished = FinishedRgba16Source.wrap(result,
+                            com.spektralab.android.engine.EditorGrade.from(params), params.finishedCrop, check)
+                        val sized = SizedRgba16Source.wrap(finished, options.customSize, check)
                         val path = encode(sized, metadata, task)
                         task.succeeded(path)
                         Output(path, sized.width, sized.height)

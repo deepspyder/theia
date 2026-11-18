@@ -9,7 +9,7 @@ import org.json.JSONObject
 enum class EditGroup(val key: String, val fields: Set<String>) {
     MATERIAL("material", setOf("film_stock", "print_stock")),
     DECODE("decode", setOf("camera_wb_kelvin", "camera_wb_tint", "camera_wb_custom", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")),
-    FILM("film", setOf("exposure_compensation_ev", "auto_exposure_method", "auto_exposure", "film_format_mm",
+    FILM("film", setOf("film_off", "exposure_compensation_ev", "auto_exposure_method", "auto_exposure", "film_format_mm",
         "scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
         "scene_latitude_shadow_knee", "scene_latitude_shadow_room", "scene_latitude_rolloff", "scene_latitude_max_lift",
         "grain_active", "grain_amount", "grain_layered", "halation_active", "halation_amount", "halation_scatter_amount",
@@ -21,7 +21,7 @@ enum class EditGroup(val key: String, val fields: Set<String>) {
     COLOR("color", setOf("temperature", "tint", "saturation", "color_adjustments", "channel_mixer", "color_wheels",
         "cb_shadow_temp", "cb_shadow_tint", "cb_mid_temp", "cb_mid_tint", "cb_high_temp", "cb_high_tint")),
     VIGNETTE("vignette", setOf("vignette_amount", "vignette_size", "vignette_feather")),
-    GEOMETRY("geometry", setOf("quarter_turns", "flip_h", "flip_v", "rotation_deg", "crop_x", "crop_y", "crop_w", "crop_h")),
+    GEOMETRY("geometry", setOf("perspective_vertical", "perspective_horizontal", "finished_crop", "quarter_turns", "flip_h", "flip_v", "rotation_deg", "crop_x", "crop_y", "crop_w", "crop_h")),
     FRAME("frame", setOf("overscan_active", "overscan_format", "overscan_mode", "overscan_gate", "overscan_holes",
         "overscan_carrier", "overscan_fog", "overscan_leaks", "date_imprint_active", "date_imprint_style",
         "date_imprint_placement", "date_imprint_corner", "date_imprint_size", "date_imprint_ev", "date_imprint_inset_x", "date_imprint_inset_y"));
@@ -80,7 +80,7 @@ class EditTemplate private constructor(val groups: Set<EditGroup>, private val v
     }
 
     companion object {
-        private val optional = setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
+        private val optional = setOf("film_off", "perspective_vertical", "perspective_horizontal", "finished_crop", "tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
             "halation_model_version", "halation_headroom_ev", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")
 
         fun capture(params: EditorParams, groups: Set<EditGroup>): EditTemplate {

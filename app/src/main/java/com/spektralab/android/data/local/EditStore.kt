@@ -133,7 +133,8 @@ object EditStore {
     @Synchronized
     fun saveBatch(context: Context, edits: List<BatchEdit>) = checked {
         val owned = EditorParams().toJson().keys().asSequence().toSet() +
-            setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels")
+            setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
+                "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop")
         val writes = edits.map { edit ->
             val current = read(context, edit.uri)
             check(current == edit.expectedJson) { "EDIT_TARGET_CHANGED" }

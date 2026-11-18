@@ -20,6 +20,11 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun PrintPanel(vm: EditorViewModel) {
+    if (vm.params.filmOff) {
+        Text(stringResource(R.string.scene_print_disabled),
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 16.dp))
+        return
+    }
     EditorSection("放大机", "打印曝光 · Y / M 滤色", initiallyExpanded = true) {
         SliderRow("打印曝光(越小越亮)", vm.params.printExposure, 0.25f..4f, "%.2f") { vm.params.printExposure = it; vm.scheduleRender() }
         SliderRow("滤镜 Y(黄/蓝)", vm.params.yFilterShift, -1f..1f, "%+.0f CC", displayScale = 40f) { vm.params.yFilterShift = it; vm.scheduleRender() }

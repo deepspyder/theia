@@ -4,6 +4,7 @@ package com.spektralab.android.engine
 interface Rgba16Source {
     val width: Int
     val height: Int
+    val gradeApplied: Boolean get() = false
 
     fun readRows(y: Int, rows: Int, destination: ShortArray)
 }

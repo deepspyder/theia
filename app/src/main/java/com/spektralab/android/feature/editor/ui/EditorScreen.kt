@@ -1,5 +1,7 @@
 package com.spektralab.android.feature.editor.ui
 
+import androidx.compose.ui.res.stringResource
+import com.spektralab.android.R
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -195,8 +197,10 @@ internal fun EditorScreen(
                             })
                             DropdownMenuItem(text = { Text("照片工作台 (${vm.photos.size})") }, enabled = vm.photos.isNotEmpty(),
                                 onClick = { showMoreMenu = false; photoTrayVisible = true })
-                            DropdownMenuItem(text = { Text("裁剪照片") }, enabled = vm.hasPhoto && !vm.params.overscanActive,
+                            DropdownMenuItem(text = { Text("裁剪照片") }, enabled = vm.hasPhoto && (!vm.params.overscanActive || vm.params.filmOff),
                                 onClick = { showMoreMenu = false; vm.beginCrop() })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.scene_finished_action)) }, enabled = vm.hasPhoto && !vm.busy,
+                                onClick = { showMoreMenu = false; vm.beginFinishedCrop() })
                             DropdownMenuItem(text = { Text("重置") }, enabled = vm.hasPhoto,
                                 onClick = { showMoreMenu = false; vm.resetAll() })
                             DropdownMenuItem(text = { Text("测试图") }, onClick = { showMoreMenu = false; vm.openTestImage() })
@@ -232,7 +236,7 @@ internal fun EditorScreen(
             ) {
                 val landscape = windowLayout.landscape
                 val parameterWidth = (maxWidth * .44f).coerceIn(280.dp, 440.dp)
-                if (vm.isCropping && vm.sourceBitmap != null) {
+                if (vm.isCropping && (vm.cropWorkspaceBitmap != null || vm.sourceBitmap != null)) {
                     CropWorkspace(vm, Modifier.fillMaxSize())
                 } else AnimatedContent(
                     targetState = selectedTab,
@@ -300,7 +304,8 @@ internal fun EditorScreen(
                                 Text("拍摄参数", Modifier.weight(1f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 TextButton(onClick = { showAllShootControls = true }) { Text("全部调整", fontSize = 11.sp) }
                             }
-                            SliderRow("曝光补偿", vm.params.exposureEv, -8f..8f, "%+.1f EV", compact = true) {
+                            if (vm.params.filmOff) Text(stringResource(R.string.scene_film_off_compact), style = MaterialTheme.typography.bodySmall)
+                            else SliderRow("曝光补偿", vm.params.exposureEv, -8f..8f, "%+.1f EV", compact = true) {
                                 vm.params.exposureEv = it; vm.scheduleRender()
                             }
                             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {

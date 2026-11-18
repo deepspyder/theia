@@ -137,6 +137,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        geometryMode = audit?.takeIf { it.startsWith("geometry-") }
         settingsMode = audit?.takeIf { it in setOf("settings-storage", "settings-editor", "settings-ui", "settings-process") }
         neutralMode = audit?.takeIf { it in setOf("neutral-math", "neutral-raw", "neutral-boundaries", "neutral-editor", "neutral-layout", "neutral-process") }
         historyEditorOnly = audit == "history-editor"
@@ -286,10 +287,24 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var historyEditorOnly = false
     private var neutralMode: String? = null
     private var settingsMode: String? = null
+    private var geometryMode: String? = null
     private var historyCrashPhase: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        geometryMode?.let { mode ->
+            case(mode) { when(mode) {
+                "geometry-math" -> GeometryMathAudit(this).run()
+                "geometry-composition" -> GeometryCompositionAudit(this,output).run()
+                "geometry-baseline-seed" -> GeometryLegacyAudit(this,output).run(true)
+                "geometry-baseline-verify" -> GeometryLegacyAudit(this,output).run(false)
+                else -> GeometryNativeAudit(this,output).run(mode)
+            } }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         settingsMode?.let { mode ->
             case(mode) { if(mode == "settings-storage") SettingsStorageAudit(this,output).run()
                 else SettingsUiAudit(this,output).run(mode) }

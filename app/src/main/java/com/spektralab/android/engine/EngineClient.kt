@@ -28,6 +28,15 @@ class EngineClient private constructor(
 ) : Closeable {
 
     private var sessionPtr: Long = 0L
+    private var sceneBinding = NativeSceneSession.Binding(false,0f,0f)
+    private var boundJson = "{}"
+    @Volatile private var sceneIngress: java.util.concurrent.atomic.AtomicBoolean? = null
+    private inline fun <T> ingress(block: (java.util.concurrent.atomic.AtomicBoolean) -> T): T {
+        val token = java.util.concurrent.atomic.AtomicBoolean(false)
+        sceneIngress = token
+        try { return block(token) } finally { sceneIngress = null }
+    }
+    internal fun requiresSourceReopen(json: String): Boolean = NativeSceneSession.binding(json) != sceneBinding
     // cancel() is the only JNI session call made from outside the serialized engine dispatcher.
     private val sessionLifetime = ReentrantReadWriteLock(true)
 
@@ -67,14 +76,21 @@ class EngineClient private constructor(
      */
     fun open(data: FloatArray, width: Int, height: Int, channels: Int, paramsJson: String? = null): Long {
         prepareOpen()
-        val opened = withEngine { nativeOpen(enginePtr, data, width, height, channels, paramsJson) }
+        val binding=NativeSceneSession.binding(paramsJson)
+        require(!binding.required || channels==3)
+        val opened = withEngine { if(binding.required) ingress { NativeSceneSession.open(enginePtr,data,width,height,0,null,paramsJson ?: "{}",binding,it) }
+            else nativeOpen(enginePtr, data, width, height, channels, paramsJson) }
+        sceneBinding=binding;boundJson=paramsJson ?: "{}"
         sessionLifetime.write { sessionPtr = opened }
         return sessionPtr
     }
 
     fun openBitmap(bitmap: Bitmap, paramsJson: String): Long {
         prepareOpen()
-        val opened = withEngine { nativeOpenBitmap(enginePtr, bitmap, paramsJson) }
+        val binding=NativeSceneSession.binding(paramsJson)
+        val opened = withEngine { if(binding.required) ingress { NativeSceneSession.open(enginePtr,null,bitmap.width,bitmap.height,0,bitmap,paramsJson,binding,it) }
+            else nativeOpenBitmap(enginePtr, bitmap, paramsJson) }
+        sceneBinding=binding;boundJson=paramsJson
         sessionLifetime.write { sessionPtr = opened }
         return sessionPtr
     }
@@ -82,17 +98,20 @@ class EngineClient private constructor(
     fun openRaw(image: NativeRawImage, paramsJson: String): Long {
         check(image.handle != 0L) { "RAW image closed" }
         prepareOpen()
-        val opened = withEngine { nativeOpenRaw(enginePtr, image.handle, paramsJson) }
+        val binding=NativeSceneSession.binding(paramsJson)
+        val opened = withEngine { if(binding.required) ingress { NativeSceneSession.open(enginePtr,null,image.width,image.height,image.handle,null,paramsJson,binding,it) }
+            else nativeOpenRaw(enginePtr, image.handle, paramsJson) }
+        sceneBinding=binding;boundJson=paramsJson
         sessionLifetime.write { sessionPtr = opened }
         return sessionPtr
     }
 
-    fun renderForExport(): NativeRenderResult = requireSession { nativeRenderForExport(enginePtr, sessionPtr) }
+    fun renderForExport(): NativeRenderResult = requireSession { if(sceneBinding.filmOff) NativeSceneSession.export(sessionPtr) else nativeRenderForExport(enginePtr, sessionPtr) }
 
     /** Consume an export-only session; the returned CPU pixels own their storage. */
     fun renderExportOnce(): NativeRenderResult {
         try {
-            return requireSession { nativeRenderExportOnce(enginePtr, sessionPtr) }
+            return requireSession { if(sceneBinding.filmOff) NativeSceneSession.export(sessionPtr) else nativeRenderExportOnce(enginePtr, sessionPtr) }
         } finally {
             closeSession()
         }
@@ -100,7 +119,7 @@ class EngineClient private constructor(
 
     internal fun renderExportResolved(filmSeed: Long, printSeed: Long): NativeRenderResult {
         try {
-            return requireSession { nativeRenderExportResolved(enginePtr, sessionPtr, filmSeed, printSeed) }
+            return requireSession { if(sceneBinding.filmOff) NativeSceneSession.export(sessionPtr) else nativeRenderExportResolved(enginePtr, sessionPtr, filmSeed, printSeed) }
         } finally { closeSession() }
     }
 
@@ -114,7 +133,8 @@ class EngineClient private constructor(
         val session = sessionPtr
         if (session != 0L) {
             sessionPtr = 0L
-            nativeSessionRelease(session)
+            if(sceneBinding.filmOff) NativeSceneSession.release(session) else nativeSessionRelease(session)
+            sceneBinding=NativeSceneSession.Binding(false,0f,0f)
         }
     }
 
@@ -144,15 +164,24 @@ class EngineClient private constructor(
         if (previous != 0L) nativeEngineDestroy(previous)
     }
 
-    fun setParams(deltaJson: String): String =
-        requireSession { nativeSetParams(enginePtr, sessionPtr, deltaJson) }
+    fun setParams(deltaJson: String): String = requireSession {
+        val merged = JSONObject(boundJson).apply {
+            val delta = JSONObject(deltaJson)
+            delta.keys().forEach { put(it, delta.get(it)) }
+        }.toString()
+        check(!requiresSourceReopen(merged)) { "Source geometry changed; reopen source" }
+        if (sceneBinding.filmOff) { NativeSceneSession.update(sessionPtr, deltaJson); boundJson = merged; "{}" }
+        else nativeSetParams(enginePtr, sessionPtr, checkNotNull(NativeSceneSession.engineJson(deltaJson)))
+    }
 
     /** Apply a UI snapshot without making unchanged capture/material fields invalidate the negative.
      * Read native state inside the session transaction, so solve/open/export restores cannot leave
      * a stale host-side parameter cache. Low-level setParams keeps its explicit delta semantics.
      */
     fun setChangedParams(snapshotJson: String): String = requireSession {
-        val requested = runCatching { JSONObject(snapshotJson) }.getOrNull()
+        check(!requiresSourceReopen(snapshotJson)) { "Source geometry changed; reopen source" }
+        if(sceneBinding.filmOff) {NativeSceneSession.update(sessionPtr,snapshotJson);boundJson=snapshotJson;return@requireSession "{}"}
+        val requested = runCatching { JSONObject(checkNotNull(NativeSceneSession.engineJson(snapshotJson))) }.getOrNull()
             ?: return@requireSession nativeSetParams(enginePtr, sessionPtr, snapshotJson)
         val current = JSONObject(nativeGetParams(enginePtr, sessionPtr))
         val changed = JSONObject()
@@ -171,36 +200,36 @@ class EngineClient private constructor(
     }
 
     fun getParams(): String =
-        requireSession { nativeGetParams(enginePtr, sessionPtr) }
+        requireSession { if(sceneBinding.filmOff) boundJson else nativeGetParams(enginePtr, sessionPtr) }
 
     /** [target] 为 "exposure"、"filter_pack" 或 "both"。 */
     fun solve(target: String): String =
-        requireSession { nativeSolve(enginePtr, sessionPtr, target) }
+        requireSession { check(!sceneBinding.filmOff) { "Film emulation is disabled" };nativeSolve(enginePtr, sessionPtr, target) }
 
     fun sceneLatitude(requestJson: String? = null): String =
-        requireSession { nativeSceneLatitude(enginePtr, sessionPtr, requestJson) }
+        requireSession { check(!sceneBinding.filmOff) { "Film emulation is disabled" };nativeSceneLatitude(enginePtr, sessionPtr, requestJson) }
 
     fun overscanGeometry(): String =
-        requireSession { nativeOverscanGeometry(enginePtr, sessionPtr) }
+        requireSession { if(sceneBinding.filmOff) "{}" else nativeOverscanGeometry(enginePtr, sessionPtr) }
 
     // ---- 渲染 -------------------------------------------------------------
 
     /** 从缓存负片重印（打印侧改动走这条路，交互滑杆的快路径）。 */
     fun render(tier: String): SpkResult =
-        requireSession { nativeRender(enginePtr, sessionPtr, tier) }
+        requireSession { if(sceneBinding.filmOff) NativeSceneSession.preview(sessionPtr,tier) else nativeRender(enginePtr, sessionPtr, tier) }
 
     /** 全量渲染（拍摄侧改动走这条路，重建负片）。 */
     fun renderFull(tier: String): SpkResult =
-        requireSession { nativeRenderFull(enginePtr, sessionPtr, tier) }
+        requireSession { if(sceneBinding.filmOff) NativeSceneSession.preview(sessionPtr,tier) else nativeRenderFull(enginePtr, sessionPtr, tier) }
 
     fun previewStockLut(printStock: String, tier: String): SpkResult =
-        requireSession { nativePreviewStockLut(enginePtr, sessionPtr, printStock, tier) }
+        requireSession { if(sceneBinding.filmOff) NativeSceneSession.preview(sessionPtr,tier) else nativePreviewStockLut(enginePtr, sessionPtr, printStock, tier) }
 
     fun exportDi(printStock: String? = null): SpkResult =
-        requireSession { nativeExportDi(enginePtr, sessionPtr, printStock) }
+        requireSession { check(!sceneBinding.filmOff) { "DI requires film emulation" };nativeExportDi(enginePtr, sessionPtr, printStock) }
 
     fun renderDigitalIntermediate(): NativeRenderResult =
-        requireSession { nativeRenderDigitalIntermediate(enginePtr, sessionPtr) }
+        requireSession { check(!sceneBinding.filmOff) { "DI requires film emulation" };nativeRenderDigitalIntermediate(enginePtr, sessionPtr) }
 
     // ---- 控制 / 色彩 ------------------------------------------------------
 
@@ -209,12 +238,16 @@ class EngineClient private constructor(
      * The read lock lets it run beside an active render; closeSession/close take the write lock.
      */
     fun cancel(progressId: String? = null) = sessionLifetime.read {
+        sceneIngress?.set(true)
         val session = sessionPtr
-        if (!isDeviceLost && session != 0L) nativeCancel(session, progressId)
+        if (!isDeviceLost && session != 0L) {if(sceneBinding.filmOff) NativeSceneSession.cancel(session) else nativeCancel(session, progressId)}
     }
 
     /** 读取当前（或指定 [progressId]）渲染的进度。返回 JSON（含 pct/stage）。 */
     fun progress(progressId: String? = null): String = sessionLifetime.read {
+        if(sceneBinding.filmOff && sessionPtr!=0L) return@read NativeSceneSession.progress(sessionPtr).let { pct ->
+            "{\"pct\":$pct,\"stage\":\"digital\",\"done\":${pct == 100}}"
+        }
         withEngine { nativeProgress(enginePtr, sessionPtr, progressId) }
     }
 
@@ -319,7 +352,7 @@ class EngineClient private constructor(
         @JvmStatic
         private external fun nativeBuildInfo(): String
 
-        fun buildInfo(): String = nativeBuildInfo() + "; android-export=scalar-origins-v3-film-windows-1; material-catalog=1"
+        fun buildInfo(): String = nativeBuildInfo() + "; android-export=scalar-origins-v3-film-windows-1; material-catalog=1; scene-geometry=1"
 
         /**
          * 创建引擎。先把 `assets/engine/` 解压到 `filesDir/engine/`（引擎需要

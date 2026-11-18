@@ -15,6 +15,11 @@ The crop surface has 28dp horizontal safe gutters so corner drags do not
 start inside Android's system Back gesture zone.
 Cancel restores the pre-entry geometry; Done uses the existing render path.
 
+Responsive correction: when the crop workspace is short and wide, keep the
+existing top toolbar and move ratio/reset/help into a vertically scrollable
+200–280dp sidebar so the source or finished image fits the available height.
+Portrait and tablet layouts retain the incumbent vertical crop controls.
+
 Vignette is a Layer 2 finishing effect in Grade with amount, size and feather
 (0–100). Zero amount is the exact previous behavior. It is elliptical in output
 coordinates, smooth at its inner transition and does not change centre exposure.

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scene_film_title">胶片模拟</string>
+    <string name="scene_film_subtitle">关闭后保留 RAW、几何与成片调色</string>
+    <string name="scene_film_enable">启用胶片模拟</string>
+    <string name="scene_film_saved">胶片、相纸、片边与日期参数已保留，重新开启后恢复。</string>
+    <string name="scene_print_disabled">胶片模拟已关闭，当前使用源图与成片调色。开启胶片模拟后可调整相纸、乳剂、片边与日期。</string>
+    <string name="scene_film_off_compact">胶片模拟已关闭 · 在全部调整中开启</string>
+    <string name="scene_vertical">垂直透视</string>
+    <string name="scene_horizontal">水平透视</string>
+    <string name="scene_reset_perspective">重置透视</string>
+    <string name="scene_finished_title">成片裁切</string>
+    <string name="scene_finished_subtitle">在调色与片边之后裁切 · 保留源图裁剪</string>
+    <string name="scene_finished_action">裁切成片</string>
+    <string name="scene_finished_reset">重置成片裁切</string>
+    <string name="scene_di_unavailable">请先开启胶片模拟再导出 DI</string>
+    <string name="scene_crop_error">无法打开成片裁切: %1$s</string>
+</resources>
