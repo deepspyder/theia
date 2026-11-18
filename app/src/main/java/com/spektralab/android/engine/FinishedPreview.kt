@@ -14,8 +14,7 @@ internal object FinishedPreview {
         val cut = crop.pixels(width, height)
         val bitmap = createBitmap(cut.width, cut.height)
         try {
-            val transform = if (colorSpace == "Display P3") ColorSpace.connect(
-                ColorSpace.get(ColorSpace.Named.DISPLAY_P3), ColorSpace.get(ColorSpace.Named.SRGB)) else null
+            val transform = com.spektralab.android.core.color.OutputColorSpaces.displayTransform(colorSpace)
             val rows = minOf(32, cut.height, (1024 * 1024 / width).coerceAtLeast(1))
             val pixels = IntArray(width * rows)
             val discardedBins = IntArray(768)

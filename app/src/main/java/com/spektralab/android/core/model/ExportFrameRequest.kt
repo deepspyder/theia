@@ -23,7 +23,7 @@ internal data class ExportFrameRequest(
     }
 
     fun toJson(): String = JSONObject().apply {
-        put("schema", 3); put("job_id", jobId); put("source_sha256", sourceHash)
+        put("schema", 4); put("job_id", jobId); put("source_sha256", sourceHash)
         put("source_name", sourceName); put("raw", raw); put("edit", JSONObject(edit.json))
         put("decoder", decoderIdentity); put("renderer", rendererIdentity)
         put("random_version", 1); put("film_seed", realisation.film); put("print_seed", realisation.print)
@@ -31,7 +31,7 @@ internal data class ExportFrameRequest(
             put("format", options.format); put("resolution", options.resolution)
             put("color_space", options.colorSpace); put("jpeg_quality", options.jpegQuality)
             put("keep_capture", options.keepCapture); put("keep_location", options.keepLocation)
-            put("correct_lens", options.correctLens)
+            put("correct_lens", options.correctLens); put("tiff_deflate", options.tiffDeflate)
             options.customSize?.let { put("custom_size", it.toJson()) }
             put("naming", options.naming.toJson())
         })
@@ -43,20 +43,22 @@ internal data class ExportFrameRequest(
             val json = JSONObject(value)
             val schema = json.getInt("schema")
             require(json.get("schema") is Number && json.getDouble("schema") == schema.toDouble())
-            require(schema in 1..3) { "Unsupported export request" }
+            require(schema in 1..4) { "Unsupported export request" }
             require(schema == 1 || json.getInt("random_version") == 1) { "Unsupported random realisation" }
             val options = json.getJSONObject("options")
             for (key in listOf("custom_size", "naming"))
                 require(!options.has(key) || options.get(key) is JSONObject) { "Invalid export option: $key" }
+            require(!options.has("tiff_deflate") || options.get("tiff_deflate") is Boolean)
             val edit = EditSnapshot.fromJson(json.getJSONObject("edit"))
             return ExportFrameRequest(json.getString("job_id"), json.getString("source_sha256"),
                 json.getString("source_name"), json.getBoolean("raw"),
                 edit,
-                ExportOptions(options.getString("format"), options.getInt("resolution"), options.getString("color_space"),
+                ExportOptions(options.getString("format"), options.getInt("resolution"),
+                    if (schema < 4 && options.getString("format") != "TIFF") "sRGB" else options.getString("color_space"),
                     options.getInt("jpeg_quality"), options.getBoolean("keep_capture"), options.getBoolean("keep_location"),
                     options.getBoolean("correct_lens"),
                     options.optJSONObject("custom_size")?.let(ExportSize::fromJson),
-                    options.optJSONObject("naming")?.let(ExportNaming::fromJson) ?: ExportNaming()),
+                    options.optJSONObject("naming")?.let(ExportNaming::fromJson) ?: ExportNaming(), options.optBoolean("tiff_deflate",false)),
                 json.getString("decoder"), json.getString("renderer"),
                 if (json.has("film_seed")) ExportRealisation(json.getLong("film_seed"), json.getLong("print_seed"))
                 else ExportRealisation.fresh(edit.toParams()))

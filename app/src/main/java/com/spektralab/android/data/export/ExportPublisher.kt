@@ -90,7 +90,7 @@ internal class ExportPublisher(
         private val publicationLock = Any()
         internal fun uniqueName(name: String, exists: (String) -> Boolean): String {
             val extension = name.substringAfterLast('.', "")
-            require(extension in listOf("jpg", "jpeg", "png", "tiff", "tif")) { "Invalid output extension" }
+            require(extension in listOf("jpg", "jpeg", "png", "tiff", "tif", "heic")) { "Invalid output extension" }
             val stem = ExportNaming.safePart(name.substringBeforeLast('.'))
             for (index in 0..9999) {
                 val candidate = "$stem${if (index == 0) "" else " ($index)"}.$extension"

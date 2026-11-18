@@ -71,17 +71,32 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
             Spacer(Modifier.height(12.dp))
             Text("文件格式", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
             Spacer(Modifier.height(4.dp))
-            DarkroomChoiceStrip(listOf("JPEG", "PNG", "TIFF"), vm.exportFormat, !processing) { vm.exportFormat = it }
+            DarkroomChoiceStrip(if (vm.heifAvailable) listOf("JPEG", "PNG", "TIFF", "HEIF") else listOf("JPEG", "PNG", "TIFF"), vm.exportFormat, !processing) {
+                vm.exportFormat = it
+                if (it == "HEIF") vm.exportColorSpace = "sRGB"
+            }
+            if (!vm.heifAvailable) androidx.compose.material3.TextButton(onClick = {}, enabled = false) {
+                Text(androidx.compose.ui.res.stringResource(if (vm.heifChecking) R.string.output_heif_checking else R.string.output_heif_disabled))
+            }
+            if (vm.exportFormat == "HEIF") Text(androidx.compose.ui.res.stringResource(R.string.output_heif_sdr),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ExportSizeControls(vm, !processing)
             ExportSettingRow("色彩空间",
-                if (vm.exportFormat == "TIFF") vm.exportColorSpace else "sRGB IEC61966-2.1",
-                if (vm.exportFormat == "TIFF") listOf("sRGB", "Display P3") else emptyList(), !processing) {
+                vm.exportColorSpace,
+                if (vm.exportFormat == "HEIF") emptyList() else com.spektralab.android.core.color.OutputColorSpaces.names, !processing) {
                 vm.exportColorSpace = it
             }
-            if (vm.exportFormat == "JPEG") {
-                SliderRow("JPEG 质量", vm.jpegQuality.toFloat(), 50f..100f, "%.0f%%", compact = true,
+            Text(androidx.compose.ui.res.stringResource(R.string.output_color_help),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+            if (vm.exportFormat in listOf("JPEG", "HEIF")) {
+                SliderRow("${vm.exportFormat} 质量", vm.jpegQuality.toFloat(), 50f..100f, "%.0f%%", compact = true,
                     enabled = !processing) { vm.jpegQuality = it.roundToInt() }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f), thickness = .5.dp)
+            }
+            if (vm.exportFormat == "TIFF") com.spektralab.android.ui.components.ToggleRow(
+                androidx.compose.ui.res.stringResource(R.string.output_tiff_deflate), vm.exportTiffDeflate, enabled = !processing) {
+                vm.exportTiffDeflate = it
             }
             ExportMetadataOption("保留拍摄信息", "相机、镜头、拍摄时间及曝光参数", vm.exportKeepCapture, !processing) { vm.exportKeepCapture = it }
             ExportMetadataOption("保留位置信息", "仅复制原片已有、可读取的 GPS 信息", vm.exportKeepLocation, !processing) { keep ->

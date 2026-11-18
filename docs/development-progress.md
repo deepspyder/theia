@@ -6,10 +6,11 @@
 
 ## 当前批次
 
-R07 Decode场景曲线完成：独立五通道±8EV模型、胶片前Vulkan节点/窗口ABI、测光与medium隔离、历史/预设/同步/三格式/原尺寸RAW/灯台输出和四配置UI接通；旧默认完整U16保持。当前R01—R07共7/26完成，下一项R08专业输出色域与HEIF。按用户授权连续开发、逐项测试后英文commit并push。
+R08专业SDR输出完成：四空间真实变换/ICC、JPEG配置替换、PNG iCCP、TIFF16可选Deflate及设备探测HEIF/主图ICC接通。435条执行记录、两次207/207总回归、28原生截图独立ship；原尺寸NEF8种输出完整核对。R01—R08共8/26完成，下一项R09原尺寸细节瓦片与软打样。每项测试后英文commit并正常push origin/master。
 
 ## 验证与限制
 
+- 2026-11-19 R08：32编码专项+48应用组合+7 NEF原尺寸+HEIF原尺寸补验，完整像素/ICC/元数据/位深及Deflate逐样本无损通过；四空间独立矩阵/TRC及LittleCMS核对，Adobe完整NEF最大差19/65535，默认sRGB差0。435执行行含两次207/207，4配置28原生截图fresh ship/documenter；15工具测试，Debug/AndroidTest/Release/Lint0Error/76Warning/21Hint。Release58723640字节/4315a04846303dd9cff25d21afe63b534444bacb46e2042e56d7e77cd1c3b27a，原签名/16KiB通过。保留SDR工作色域、HEIF30s drain/API26运行与ARM屏幕限制，详见docs/features/r08-professional-output.md和.tmp/r08-output/verification.json。
 - 2026-11-19 R07：8组320024线性Vulkan像素普通/窗口逐位一致，CPU参考最大相对误差1.54e-6；62489胶片像素独立线性源参考最大差1U16，曝光补偿/自动测光/medium/新会话宽容度直方图合同通过。18次PNG/WebP/JPEG原尺寸+限额三格式实际输出、24.5MP NEF三格式/完整PNG摘要、RAW WB重解码、虚拟副本批量/灯台、历史重启和4配置32真实照片截图通过；总入口207/207。15工具测试、Lint零Error/74既有Warning/21Hint；主SO两ABI及3新shader变化，203旧运行条目保持。界面独立五节review为ship（消息已交付，最终传送随后provider403），文档更新editing-feedback，详见docs/features/r07-decode-scene-curves.md与.tmp/r07-scene-curves/verification.json。
 - 2026-11-18 R06：1200相机射线点、29877调色后裁切像素、78432原生几何像素；sRGB/P3裁后显示/直方图与完整画面参考一致。8组R05 U16逐位保持；PNG/WebP/JPEG EXIF1/3/6/8共36次实际三格式/三自定义限额输出、TIFF完整U16、原尺寸6064×4040 NEF及跨缓存完整PNG摘要一致。虚拟副本批量及两套1600px灯台与独立调色后裁切参考一致；历史重启/redo、取消/重绑及4配置真实照片界面通过。29组244条执行记录、总入口207/207、28原生截图；短横屏裁切侧栏复核resolved/ship，详细汇总见docs/features/r06-scene-geometry.md和.tmp/r06-geometry/verification.json。仍仅API37 x86_64，不宣称ARM驱动或手机性能验收。
 - 2026-11-18 R05：20组228条执行记录、总入口207/207；新图黑白默认材料/旧编辑隔离、三档RAW/PNG预览、同次打开预算冻结及原尺寸整文件SHA跨预算保持；真实进程重启偏好恢复。原子偏好/坏未来超长保护、真实不可写目录、两读者clear/零预算U16保持、可选缓存IO隔离通过；实际SAF选址取消/保存/ENOSPC/慢目标取消删除、电脑ZIP CRC/精确字段白名单通过。4配置44截图、短横屏880dp与取消状态复核，Debug/AndroidTest/Release/Lint零Error，既有74Warning/21Hint无新增位置，14工具测试通过。205原生/运行资产与R04逐字节一致；Release58614312字节/4eedb4757963eda999d7a00c561d8ac4bc1e15035963472030a264ef68eefbc9，原证书/16KiB通过。仅API37 x86_64，非ARM/厂商云端/性能承诺。详见docs/features/r05-settings-cache-diagnostics.md及.tmp/r05-settings/verification.json。
@@ -299,7 +300,7 @@ R07 Decode场景曲线完成：独立五通道±8EV模型、胶片前Vulkan节�
 | F12 | 成片裁剪与胶片开关 | 已验收 | R06两级裁切/胶片旁路/透视已完成：旧默认U16保持、独立坐标和完整像素参考、实际三格式/尺寸/NEF导出、批量/虚拟副本/灯台、预览直方图/HD/软打样/历史重启与四配置真实照片界面通过，见docs/features/r06-scene-geometry.md。设备范围API37 x86_64。 | — |
 | F13 | Decode 场景曲线 | 进行中 | R07胶片前Decode场景曲线已完成，独立±8EV五行表/SHOOT失效/Vulkan与窗口化/曝光及测光/medium合同、实际三格式/RAW/虚拟副本/灯台/历史/四配置界面通过。现有宽容度直方图测量保持，新会话独立核对通过，图表不误用编码成片直方图。 | 参考项目增强场景直方图/曝光轴可视化仍可继续；当前场景曲线图提供准确EV刻度和读数，尚未绘制该增强统计图；ARM设备验收仍待。 |
 | F14 | CineStill 800T 与新版光晕 | 进行中 | 用户指定提前开发。已从本地原项目1952c635移植CineStill单层Vision3别名、四分量带符号背反射PSF与Vulkan高光余量，Android构建目录覆盖源码而不修改两个桌面项目或材料测量数组。来源和许可随APK保留。；显式模型版本1/2，旧照片和旧预设保持经典；明确选CineStill启用背反射。0–8EV余量、真实无防光晕层状态、保存/撤销/复制/FILM预设/缓存与单张批量三格式链路已实现。未知或小数版本、无效余量拒绝且原记录保留。；最终32组202条功能记录全部通过，4配置真实生产交互及横屏分状态截图已核对。旧31组完整U16材料基准逐字节相同，旧96项引擎/许可证资源与31张标签保持；独立GPU24用例含超1677万像素调度。经典两份24MP16位TIFF和新CineStill首次/缓存的完整SHA各自保持；同尺寸新旧性能交错采样明细与限制见f14-cinestill-halation.md及.tmp/f14-cinestill/verification.json。；2026-11-15实际PC独立同源对照：CineStill sRGB/ProPhoto完整24MP U16最大差异1；修复声明相纸和同款模型重选入口，红绿记录保留。15组27条回归及独立参考重建通过，模型数据与原生库保持。 | ARM真机GPU驱动/显存峰值、持续调节尾延迟与温控验收；多种真实夜景和不同相机来源的观感核对。；50MP及超宽图压力边界仍需F03贯穿验收；没有macOS Metal整引擎运行对照。高光余量不是丢失细节恢复或F19 HDR。 |
-| F15 | 专业色域、HEIF 与无损 TIFF | 未开发 | — | Adobe RGB/ProPhoto 真实变换及 ICC；能力检测；HEIF 编码；压缩 TIFF 样本验证 |
+| F15 | 专业色域、HEIF 与无损 TIFF | 进行中 | R08软件输出范围已完成：四空间真实变换、PNG/JPEG/TIFF ICC、主图关联ICC的HEIF能力检测和原尺寸编码、TIFF16可选Deflate；435执行行含两次207总回归、28原生截图ship、完整24.5MP像素及LittleCMS独立参考。现有SDR工作域不扩展；详见docs/features/r08-professional-output.md。 | API26运行烟测及实际不支持HEIF设备、ARM/厂商codec/P3屏幕验收；HEIF取消受AndroidX30秒drain约束，真机耗时/温控未测。；完整宽色域工作链和准确屏幕软打样继续R09/F17，不把成片空间转换宣传为恢复工作域已裁颜色。 |
 | F16 | 导出恢复与后台执行 | 进行中 | 首轮已接入真实单张/批量：ExportFrameRequest、ExportCoordinator、原子任务/发布凭据日志、独立 :render host、只读描述符、取消/死亡、前台/CPU租约、恢复预览前设备释放确认。pending 与已提交凭据恢复、源变化拒绝提交等审计通过；不是完整任务重启续跑或全部导出入口迁移完成。；2026-11-15 生产RAW原尺寸同冻结参数小图结构参考与异常结果拦截；256MiB/7天成片缓存、安装代际、24小时已知暂存回收，租约和原片/编辑/项目保护通过。只读签名不进入输出像素；真机和完整中断矩阵仍待。；2026-11-18同步62de213片边窗口与灯台取消修复：严格128MiB绑定/8MiB窗口完成全尺寸片边，128张实际输出独立完整像素比较通过；59组297去重回归通过，仅模拟器。详见raw-overscan-export-regression.md。；R01已统一到预览/原尺寸解码/相机矩阵的RAW内容输入路径；只在open/metadata IO失败做一次同fd暂存，模拟器回归通过；非持久任务续跑。；R02冻结请求schema3兼容读取schema1/2；单张/批量自定成片长边/短边/MP、命名token排序/分隔符、重名保留与取消清理；57张实际输出及批量/软打样/持久发布恢复回归通过。非完整进程续跑。 | 主进程退出/满盘/发布每个中断点与恢复UI；持久任务安全重启、去重和云端异常边界。；将预览、观景台合成、DI及后期/编码完整统一到host，补真实ARM后台/锁屏与进程死亡验收。 |
 | F17 | 文案资源化与四语言 | 进行中 | 新编辑工具、照片图库、整理、版本及项目管理已使用默认values/strings.xml资源；新界面通过stringResource/getString引用。仅完成部分资源化基础，未实现四语言。；R02新增尺寸/命名/配方文案全部在values/export_options.xml，四配置真实界面通过；未将此视为四语言翻译完成。；R04新增吸管/预设/拍摄值轴的文案位于neutral_white_balance.xml；4配置大字体/横屏和错误状态通过，尚未完成四语言翻译。；R05设置/缓存/诊断文案资源化，真实SAF手动保存与字段白名单诊断ZIP、取消/不可写反馈、4配置大字/横屏/系统返回通过；未增加四语言翻译，未复制桌面平台专属开关。；R06新增胶片旁路/透视/成片裁切文案集中在scene_geometry.xml；横屏裁切侧栏让图片使用完整可用高度。尚未完成四语言翻译。 | 旧页面硬编码文案逐页迁移；补齐四语言资源与切换/回退、长文本和排版验收；新增文案持续资源化。；实际PC ProPhoto工作空间视图与Android sRGB后期的非中性参数独立对照和统一仍待；CineStill默认原生整图通过不等于所有后期/UI表面完全移植。 |
 | F18 | 独立冲印与对比度遮罩 | 未开发 | — | 多印放/分区作用域；contrast mask GPU 阶段；缓存失效与图像验证 |
@@ -308,10 +309,10 @@ R07 Decode场景曲线完成：独立五通道±8EV模型、胶片前Vulkan节�
 
 ## 下一步
 
-1. 按docs/upstream-2.4.2-android-roadmap.md连续执行：R01—R07已交付，下一项R08专业输出色域与HEIF，先真实颜色变换/ICC/完整文件读回，再设备编码能力。每项测试后英文commit并push origin/master；余19个R工作包和F清单未完范围保持。
+1. 按docs/upstream-2.4.2-android-roadmap.md连续执行：R01—R08已交付，下一项R09原尺寸细节瓦片与软打样，冻结编辑/可见矩形/驻留预算及文件/显示颜色分离。每项测试后英文commit并push origin/master；余18个R工作包与F未完范围保持。
 2. 小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。 R03同步持久化主线程P95约19.4ms（本轮模拟器样本），ARM持续编辑与尾延迟仍待验，不作60fps保证。
 3. R10及F01/F02/F03/F16继续跨节点峰值预算、阶段缓存、全入口host、持久源身份/授权、完整中断/满盘/取消矩阵与安全重试。保留精确suspend/resume和ARM连续负载验收。
-4. R08/R09分别接真实专业色彩输出与全尺寸细节；R07独立Decode场景曲线已完成。F13增强场景统计可视化及F17非中性成片工作空间与PC独立对照继续。
+4. R09接完整原尺寸细节和准确软打样；R08专业SDR输出、R07独立Decode场景曲线已完成。F13增强场景统计及F17非中性成片工作空间与PC独立对照继续。
 5. R11半格双源项目按稳定资产/持久历史/两级几何与任务合同接入，随后R12双重曝光；保留F10原范围，单张135_half与灯台拼图不冒充该能力。
 6. R13独立冲印/contrast mask与R14–R18局部层/画笔/scene层/自动主体/水印分开交付；自动主体先调查本地模型与许可，不能直接移植Apple Vision。
 7. F07/F08/F09补长期URI、云端/缺源、图库批量整理、外部加入持久灯台、更高像素/分带导出；原有自由画布及首批正式输出保持。

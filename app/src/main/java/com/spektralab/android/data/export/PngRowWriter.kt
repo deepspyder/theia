@@ -13,12 +13,16 @@ import java.util.zip.DeflaterOutputStream
 /** Lossless RGB PNG. Native zlib consumes rows; no full-size Bitmap or encoded byte array. */
 internal object PngRowWriter {
     fun write(source: Rgba16Source, grade: Grade, output: OutputStream, check: () -> Unit,
-              metadata: ExportMetadata = ExportMetadata.EMPTY) {
+              metadata: ExportMetadata = ExportMetadata.EMPTY, icc: ByteArray? = null) {
         val out = DataOutputStream(output)
         out.write(byteArrayOf(137.toByte(), 80, 78, 71, 13, 10, 26, 10))
         chunk(out, "IHDR", ByteBuffer.allocate(13).order(ByteOrder.BIG_ENDIAN)
             .putInt(source.width).putInt(source.height).put(8).put(2).put(0).put(0).put(0).array())
-        chunk(out, "sRGB", byteArrayOf(0))
+        if (icc == null) chunk(out, "sRGB", byteArrayOf(0)) else {
+            val compressed = java.io.ByteArrayOutputStream()
+            DeflaterOutputStream(compressed).use { it.write(icc) }
+            chunk(out, "iCCP", "Theia RGB".toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0) + compressed.toByteArray())
+        }
         if (metadata.attributes.isNotEmpty()) chunk(out, "eXIf", metadata.tiffDirectory(source.width, source.height))
         val packets = object : OutputStream() {
             private val bytes = ByteArray(64 * 1024)

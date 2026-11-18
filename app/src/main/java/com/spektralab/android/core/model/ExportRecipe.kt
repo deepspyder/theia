@@ -12,4 +12,5 @@ data class ExportRecipe(
     val keepLocation: Boolean = false,
     val customSize: ExportSize? = null,
     val naming: ExportNaming = ExportNaming(),
+    val tiffDeflate: Boolean = false,
 )

@@ -14,3 +14,14 @@ Release/Debug/androidTest构建通过。6个原生库及94项引擎资源与上�
 安装包：app/release/v0.1.4-export-settings/Theia-v0.1.4-export-settings.apk
 SHA-256：c61bb5e9b26229f38a6662f5c1de15c4a6dc4bdc70cf9e3b14da8713ab79f113
 包名、0.1.4(5)和原证书保持，V1/V2/V3签名验证通过。截图/日志/验证摘要位于.tmp/export-settings-polish/。
+
+## R08 行为与 UI 合同
+
+日期：2026-11-19。普通延伸 incumbent Theia 暗房导出页；保留既有 DESIGN.md token、圆体、琥珀选中态、滚动设置列与底部固定操作。
+
+- 输出色彩空间下拉固定提供四项：`sRGB`、`Display P3`、`Adobe RGB (1998)`、`ProPhoto RGB`。导出文件转换到所选空间并嵌入对应 ICC；当前 SDR 工作空间不会因此扩展为 HDR 或宽色域工作空间。
+- HEIF 仅在真实设备编码能力探测通过后可选；编码语义固定为 SDR、sRGB、8 bit。探测失败时 HEIF 禁用并保留明确原因；已保存但当前不可用的 HEIF 配方必须拒绝执行，不得静默回退或伪装为 JPEG。
+- JPEG 与 HEIF 显示质量百分比标签；TIFF 保留可选的 16-bit RGB 与无损 Deflate 开关。格式切换只显示对应控制，原有分辨率、默认外观、元数据和配方链路继续有效。
+- 设置内容继续位于可滚动列，安全区、固定导出操作和处理时禁用状态保持；大字体、横屏与平板维持现有约束宽度和可读性。
+
+证据：依据 `review-packet.json` 与 `finish-review.md` 审阅四种配置共 28 张原始截图，并对照当前 `ExportScreen.kt`、`DESIGN.md`、`.impeccable/design.json` 及本文件历史记录。R08 评审结论为 ship；未发现需要修复的材料性 UI 问题。PRODUCT.md 缺失，未据此补造产品语境。现存历史报告与设计 token 保持不变；本次仅记录行为合同，不修复预先存在的偏差。

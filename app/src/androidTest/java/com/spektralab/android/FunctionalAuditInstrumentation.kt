@@ -145,7 +145,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
         historyStorageOnly = audit == "history-storage"
         historyProcessPhase = audit?.removePrefix("history-process-")?.takeIf { it in setOf("seed", "verify", "branch") }
-        exportOptionsMode = audit?.takeIf { it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
+        exportOptionsMode = audit?.takeIf { it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
         legacyUiOnly = audit == "legacy-ui"
         exportMatrixPart = arguments?.getString("matrixPart")?.takeIf { audit == "export-matrix" }
@@ -371,6 +371,12 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         exportOptionsMode?.let { mode ->
             case(mode) {
                 when (mode) {
+                    "professional-output" -> ProfessionalOutputAudit(this, output).run()
+                    "professional-output-application" -> ProfessionalOutputApplicationAudit(this, output).run(false)
+                    "professional-output-raw" -> ProfessionalOutputApplicationAudit(this, output).run(true)
+                    "professional-output-heif" -> ProfessionalOutputApplicationAudit(this, output).run(true, true)
+                    "professional-output-ui" -> ProfessionalOutputUiAudit(this, output).run()
+                    "professional-output-batch" -> ExportOptionsBatchAudit(this).run(true)
                     "export-options" -> ExportOptionsAudit(this).run()
                     "export-options-application" -> ExportOptionsApplicationAudit(this, output).run()
                     "export-options-batch" -> ExportOptionsBatchAudit(this).run()

@@ -39,7 +39,10 @@ internal class PhotoExportPipeline(private val context: Context) {
                         val finished = FinishedRgba16Source.wrap(result,
                             com.spektralab.android.engine.EditorGrade.from(params), params.finishedCrop, check)
                         val sized = SizedRgba16Source.wrap(finished, options.customSize, check)
-                        val path = encode(sized, metadata, task)
+                        val converted = OutputConvertedSource.wrap(sized,
+                            if (sized.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else com.spektralab.android.engine.EditorGrade.from(params),
+                            options.renderColorSpace, options.outputColorSpace, check)
+                        val path = encode(converted, metadata, task)
                         task.succeeded(path)
                         Output(path, sized.width, sized.height)
                     }

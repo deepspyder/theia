@@ -279,10 +279,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         private set
     var isExportCommitCompleted by mutableStateOf(false)
         private set
+    var heifAvailable by mutableStateOf(false)
+        private set
+    var heifChecking by mutableStateOf(true)
+        private set
     var exportFormat by mutableStateOf("JPEG")
     var exportRes by mutableStateOf(2560)
     var exportCustomSize by mutableStateOf<ExportSize?>(null)
     var exportNaming by mutableStateOf(ExportNaming())
+    var exportTiffDeflate by mutableStateOf(false)
     var exportColorSpace by mutableStateOf("sRGB")
     var jpegQuality by mutableStateOf(95)
     private val exportPreferences = app.getSharedPreferences("export_metadata", android.content.Context.MODE_PRIVATE)
@@ -458,6 +463,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             papers = p
         }
         createEngine()
+        viewModelScope.launch {
+            try { heifAvailable = withContext(Dispatchers.IO) { com.spektralab.android.data.export.HeifOutput.capability(app).available } }
+            catch (_: Exception) { heifAvailable = false }
+            finally { heifChecking = false }
+        }
     }
 
     fun append(s: String) {
@@ -1703,11 +1713,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         exportKeepLocation = recipe.keepLocation
         exportCustomSize = recipe.customSize
         exportNaming = recipe.naming.copy(tokens = recipe.naming.tokens.toList())
+        exportTiffDeflate = recipe.tiffDeflate
     }
 
     fun currentExportRecipe(name: String = "") = ExportRecipe(name, exportFormat, exportRes,
         exportColorSpace, jpegQuality, exportKeepCapture, exportKeepLocation, exportCustomSize,
-        exportNaming.copy(tokens = exportNaming.tokens.toList()))
+        exportNaming.copy(tokens = exportNaming.tokens.toList()), exportTiffDeflate)
 
     private fun updateRecipes(updated: List<ExportRecipe>, renamed: Map<String, String> = emptyMap(), onSaved: () -> Unit = {}) {
         if (recipesBusy || isExporting || isBatchExporting) return
@@ -1774,6 +1785,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun export() {
         val e = engine ?: return
         if (!hasPhoto || isExporting || isBatchExporting || busy) return
+        if (exportFormat == "HEIF" && !heifAvailable) { fail(app.getString(R.string.output_heif_unavailable)); return }
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
         if (params.unreadableColorWheels != null) { fail(app.getString(com.spektralab.android.R.string.wheels_unsupported)); return }
@@ -2417,6 +2429,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun batchExport() {
         val e = engine ?: return
         if (busy || isBatchExporting || isExporting) return
+        if (exportFormat == "HEIF" && !heifAvailable) { fail(app.getString(R.string.output_heif_unavailable)); return }
         val batchPhotos = selectedBatchExportPhotos
         if (batchPhotos.isEmpty()) return
         val options = captureExportOptions()
@@ -2655,7 +2668,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // 软打样：按导出尺寸/色彩空间重渲染并显示，不保存文件。
     fun softProof() {
-        val outputCs = if (exportFormat == "TIFF") exportColorSpace else "sRGB"
+        val outputCs = captureExportOptions().renderColorSpace
         val previewLongEdge = if (exportCustomSize != null) 0 else if (exportRes <= 0) 3400 else exportRes.coerceAtMost(3400)
         runExportAction("软打样", previewLongEdge, outputCs) { e, editParams, photo, revision, options ->
             if (!editParams.finishedCrop.isFull) {
@@ -2708,7 +2721,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // 高清预览：通过原片解码器直接限制到 3400px，避免 RAW 全尺寸 managed float buffer。
     fun previewTier() {
-        val outputCs = if (exportFormat == "TIFF") exportColorSpace else "sRGB"
+        val outputCs = captureExportOptions().renderColorSpace
         runExportAction("高清预览", 3400, outputCs) { e, editParams, photo, revision, _ ->
             val result = withContext(engineDispatcher) { e.render("preview") }
             checkExportCancellation()
@@ -2762,11 +2775,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun captureExportOptions() = ExportOptions(
         exportFormat, exportRes, exportColorSpace, jpegQuality,
         exportKeepCapture, exportKeepLocation, lensCorrectionActive,
-        exportCustomSize, exportNaming.copy(tokens = exportNaming.tokens.toList()),
+        exportCustomSize, exportNaming.copy(tokens = exportNaming.tokens.toList()), exportTiffDeflate,
     )
 
     private fun saveBitmap(bitmap: Bitmap, suffix: String, options: ExportOptions,
-                           metadata: ExportMetadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation)): String {
+                           metadata: ExportMetadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation), fileIcc: ByteArray? = null): String {
         val ext = if (options.format == "PNG") "png" else "jpg"
         val mime = if (options.format == "PNG") "image/png" else "image/jpeg"
         val name = exportFileStem(suffix, params, options) + ".$ext"
@@ -2776,7 +2789,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val tmp = File(app.cacheDir, "export_${System.nanoTime()}.$ext")
         try {
             FileOutputStream(tmp).use { fos ->
-                check(bitmap.compress(fmt, options.jpegQuality.coerceIn(1, 100), fos)) { "图片编码失败" }
+                val stream = if (fmt == Bitmap.CompressFormat.JPEG && fileIcc != null)
+                    com.spektralab.android.data.export.jpegHeaders(fos, null, fileIcc, ::checkExportCancellation) else fos
+                check(bitmap.compress(fmt, options.jpegQuality.coerceIn(1, 100), stream)) { "图片编码失败" }
             }
             metadata.attach(tmp, bitmap.width, bitmap.height)
             return publishExport(tmp, name, mime)
@@ -2794,26 +2809,34 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun encodeNativeResult(result: Rgba16Source, suffix: String, editParams: EditorParams, options: ExportOptions, metadata: ExportMetadata): String {
         val outputGrade = if (result.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(editParams)
         val stem = exportFileStem(suffix, editParams, options)
+        val fileIcc = if (options.colorSpace == "sRGB") null else com.spektralab.android.core.color.OutputIcc.generate(options.colorSpace)
+        if (options.format == "HEIF") {
+            return exportPublisher().write("$stem.heic", "image/heic") {
+                com.spektralab.android.data.export.HeifOutput.write(app, result, outputGrade, options.jpegQuality,
+                    it, ::checkExportCancellation, metadata)
+            }
+        }
         if (options.format == "PNG") {
             return exportPublisher().write("$stem.png", "image/png") {
-                com.spektralab.android.data.export.PngRowWriter.write(result, outputGrade, it, ::checkExportCancellation, metadata)
+                com.spektralab.android.data.export.PngRowWriter.write(result, outputGrade, it, ::checkExportCancellation, metadata, fileIcc)
             }
         }
         if (options.format == "JPEG" && com.spektralab.android.data.export.JpegRowWriter.available) {
             return exportPublisher().write("$stem.jpg", "image/jpeg") {
                 com.spektralab.android.data.export.JpegRowWriter.write(app, result, outputGrade, options.jpegQuality,
-                    it, ::checkExportCancellation, metadata)
+                    it, ::checkExportCancellation, metadata, fileIcc)
             }
         }
         if (options.format == "TIFF") {
-            val icc = if (options.colorSpace == "Display P3") DisplayP3Icc.generate() else readSrgbIcc()
+            val icc = if (options.colorSpace == "sRGB") readSrgbIcc() else com.spektralab.android.core.color.OutputIcc.generate(options.colorSpace)
             return exportPublisher().write("$stem.tiff", "image/tiff") {
-                TiffWriter.writeNative(result, outputGrade, icc, it, ::checkExportCancellation,
-                    metadata)
+                if (options.tiffDeflate) com.spektralab.android.data.export.DeflatedTiffWriter.write(app, result, outputGrade, icc,
+                    it, ::checkExportCancellation, metadata)
+                else TiffWriter.writeNative(result, outputGrade, icc, it, ::checkExportCancellation, metadata)
             }
         }
         val bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, outputGrade, ::checkExportCancellation)
-        try { return saveBitmap(bitmap, suffix, options, metadata) } finally { bitmap.recycle() }
+        try { return saveBitmap(bitmap, suffix, options, metadata, fileIcc) } finally { bitmap.recycle() }
     }
 
     private fun exportFileStem(suffix: String, edit: EditorParams, options: ExportOptions): String {
@@ -2827,7 +2850,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun exportNameExample(): String {
-        val extension = when (exportFormat) { "PNG" -> "png"; "TIFF" -> "tiff"; else -> "jpg" }
+        val extension = when (exportFormat) { "PNG" -> "png"; "TIFF" -> "tiff"; "HEIF" -> "heic"; else -> "jpg" }
         return exportFileStem(System.currentTimeMillis().toString(), params, captureExportOptions()) + ".$extension"
     }
 
@@ -2863,7 +2886,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun saveTiff(result: SpkResult, suffix: String, editParams: EditorParams, options: ExportOptions): String {
         val g = grade(editParams)
-        val icc = if (options.colorSpace == "Display P3") DisplayP3Icc.generate() else readSrgbIcc()
+        val icc = if (options.colorSpace == "sRGB") readSrgbIcc() else com.spektralab.android.core.color.OutputIcc.generate(options.colorSpace)
         return exportPublisher().write("Theia_$suffix.tiff", "image/tiff") { out ->
             TiffWriter.writeRgba16(result.rgba16, result.width, result.height, g, icc, out, ::checkExportCancellation,
                 ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation))

@@ -45,22 +45,22 @@ object RecipeStore {
     }
 
     private fun decode(json: JSONObject): ExportRecipe {
-        require(!json.has("version") || json.get("version") is Number && json.getDouble("version") == 1.0) { "UNSUPPORTED_RECIPE" }
+        require(!json.has("version") || json.get("version") is Number && json.getDouble("version") in listOf(1.0, 2.0)) { "UNSUPPORTED_RECIPE" }
         for (key in listOf("name", "format", "color_space")) require(json.get(key) is String) { "INVALID_RECIPE" }
         for (key in listOf("res", "jpeg_quality")) if (json.has(key)) {
             require(json.get(key) is Number && json.getDouble(key) == json.getInt(key).toDouble()) { "INVALID_RECIPE" }
         }
-        for (key in listOf("keep_capture", "keep_location"))
+        for (key in listOf("keep_capture", "keep_location", "tiff_deflate"))
             require(!json.has(key) || json.get(key) is Boolean) { "INVALID_RECIPE" }
         fun optionalObject(key: String): JSONObject? {
             require(!json.has(key) || json.get(key) is JSONObject) { "INVALID_RECIPE" }
             return json.optJSONObject(key)
         }
         return ExportRecipe(json.getString("name"), json.getString("format"), json.getInt("res"),
-            json.getString("color_space"), json.optInt("jpeg_quality", 95),
+            if (json.optInt("version", 1) < 2 && json.getString("format") != "TIFF") "sRGB" else json.getString("color_space"), json.optInt("jpeg_quality", 95),
             json.optBoolean("keep_capture", true), json.optBoolean("keep_location", false),
             optionalObject("custom_size")?.let(ExportSize::fromJson),
-            optionalObject("naming")?.let(ExportNaming::fromJson) ?: ExportNaming())
+            optionalObject("naming")?.let(ExportNaming::fromJson) ?: ExportNaming(), json.optBoolean("tiff_deflate", false))
     }
 
     private fun validate(recipes: List<ExportRecipe>) {
@@ -69,8 +69,8 @@ object RecipeStore {
         recipes.forEach {
             require(it.name == it.name.trim() && it.name.isNotEmpty() && it.name.length <= 80 &&
                 it.name.none(Char::isISOControl)) { "INVALID_RECIPE_NAME" }
-            require(it.format in listOf("JPEG", "PNG", "TIFF") && it.res in 0..65535 &&
-                it.colorSpace in listOf("sRGB", "Display P3") && it.jpegQuality in 1..100) { "INVALID_RECIPE" }
+            require(it.format in listOf("JPEG", "PNG", "TIFF", "HEIF") && it.res in 0..65535 &&
+                it.colorSpace in com.spektralab.android.core.color.OutputColorSpaces.names && it.jpegQuality in 1..100 && (it.format != "HEIF" || it.colorSpace == "sRGB")) { "INVALID_RECIPE" }
         }
     }
 
@@ -91,10 +91,10 @@ object RecipeStore {
         recipes.forEach { recipe ->
             val old = previous[renamedFrom[recipe.name] ?: recipe.name]
             val json = old?.let { JSONObject(it.toString()) } ?: JSONObject()
-            json.put("version", 1).put("name", recipe.name).put("format", recipe.format)
+            json.put("version", 2).put("name", recipe.name).put("format", recipe.format)
                 .put("res", recipe.res).put("color_space", recipe.colorSpace)
                 .put("jpeg_quality", recipe.jpegQuality).put("keep_capture", recipe.keepCapture)
-                .put("keep_location", recipe.keepLocation)
+                .put("keep_location", recipe.keepLocation).put("tiff_deflate", recipe.tiffDeflate)
             fun merge(key: String, value: JSONObject) {
                 val merged = json.optJSONObject(key)?.let { JSONObject(it.toString()) } ?: JSONObject()
                 value.keys().forEach { merged.put(it, value.get(it)) }

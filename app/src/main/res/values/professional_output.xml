@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="output_heif_unavailable">此设备没有可用的 HEIF 编码器，请选择 JPEG、PNG 或 TIFF。</string>
+    <string name="output_heif_checking">正在检测 HEIF 编码能力…</string>
+    <string name="output_heif_disabled">HEIF · 此设备不支持</string>
+    <string name="output_heif_sdr">HEIF 使用 SDR sRGB · 8 bit；需要设备编码器</string>
+    <string name="output_color_help">SDR 成片转换并嵌入 ICC；不会扩展原有工作色域。</string>
+    <string name="output_tiff_deflate">无损压缩 TIFF（Deflate）</string>
+</resources>

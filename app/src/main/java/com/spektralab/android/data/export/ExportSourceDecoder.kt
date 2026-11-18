@@ -36,11 +36,11 @@ internal object ExportSourceDecoder {
                 }
                 image.resize(size); check()
                 measureExport("engine_input") { engine.openRaw(image, params.openJson(image.width, image.height,
-                    options.outputColorSpace, "ProPhoto RGB")) }
+                    options.renderColorSpace, "ProPhoto RGB")) }
             } finally { image.close() }
         } else {
             val image = measureExport("image_decode") { bitmap(context, source, size) }
-            try { check(); engine.openBitmap(image, params.openJson(image.width, image.height, options.outputColorSpace)) }
+            try { check(); engine.openBitmap(image, params.openJson(image.width, image.height, options.renderColorSpace)) }
             finally { image.recycle() }
         }
     }

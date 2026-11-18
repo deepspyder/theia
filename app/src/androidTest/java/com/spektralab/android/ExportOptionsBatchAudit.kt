@@ -15,7 +15,7 @@ import com.spektralab.android.feature.editor.EditorViewModel
 import java.io.File
 
 internal class ExportOptionsBatchAudit(private val test: Instrumentation) {
-    fun run(): String {
+    fun run(wide: Boolean = false): String {
         val context = test.targetContext
         val activity = test.startActivitySync(Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
@@ -53,6 +53,7 @@ internal class ExportOptionsBatchAudit(private val test: Instrumentation) {
             await { vm.hasPhoto && !vm.busy && vm.renderTaskState.active == null }
             main {
                 vm.exportFormat = "PNG"; vm.exportRes = 2560
+                vm.exportColorSpace = if (wide) "ProPhoto RGB" else "sRGB"
                 vm.exportCustomSize = ExportSize(ExportSize.Kind.LONG_EDGE, 127.0)
                 vm.exportNaming = ExportNaming(listOf(ExportNaming.Token.ORIGINAL))
                 vm.exportKeepCapture = false; vm.exportKeepLocation = false
@@ -68,6 +69,11 @@ internal class ExportOptionsBatchAudit(private val test: Instrumentation) {
             val dimensions = mutableSetOf<Pair<Int, Int>>()
             for (id in outputs) {
                 val uri = ContentUris.withAppendedId(collection, id)
+                if (wide) {
+                    val bytes=resolver.openInputStream(uri)!!.use {it.readBytes()}
+                    val text=bytes.toString(Charsets.ISO_8859_1)
+                    check("iCCP" in text && "sRGB" !in text)
+                }
                 resolver.query(uri, arrayOf(MediaStore.Images.Media.DISPLAY_NAME), null, null, null)!!.use {
                     check(it.moveToFirst()); names += it.getString(0)
                 }

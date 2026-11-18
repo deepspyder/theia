@@ -106,7 +106,7 @@ internal class ExportRenderCache private constructor(private val context: Contex
                         0,
                         0,
                         "decoded-by-source-v1",
-                        options.outputColorSpace,
+                        options.renderColorSpace,
                         options.correctLens,
                         if (params.grainActive || params.glareActive) realisation?.cacheSeed ?: 0L else 0L,
                         EditSnapshot.capture(params),

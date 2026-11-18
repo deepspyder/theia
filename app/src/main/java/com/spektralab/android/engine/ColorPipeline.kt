@@ -58,9 +58,7 @@ object ColorPipeline {
                            sourceColorSpace: String = "sRGB", checkCancelled: () -> Unit = {}): Pair<Bitmap, Histogram> {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         try {
-            val transform = if (sourceColorSpace == "Display P3") {
-                ColorSpace.connect(ColorSpace.get(ColorSpace.Named.DISPLAY_P3), ColorSpace.get(ColorSpace.Named.SRGB))
-            } else null
+            val transform = com.spektralab.android.core.color.OutputColorSpaces.displayTransform(sourceColorSpace)
             if (transform == null) return bitmap to DisplayStripRenderer.render(rgba16, width, height, grade, bitmap, checkCancelled)
             val rows = minOf(32, height, (1024 * 1024 / width).coerceAtLeast(1))
             val strip = IntArray(width * rows)
@@ -103,8 +101,7 @@ object ColorPipeline {
         val histG = if (histogram) IntArray(256) else null
         val histB = if (histogram) IntArray(256) else null
         val out = FloatArray(3)
-        val displayTransform = if (sourceColorSpace == "Display P3")
-            ColorSpace.connect(ColorSpace.get(ColorSpace.Named.DISPLAY_P3), ColorSpace.get(ColorSpace.Named.SRGB)) else null
+        val displayTransform = com.spektralab.android.core.color.OutputColorSpaces.displayTransform(sourceColorSpace)
         for (i in 0 until n) {
             grade.gradeAt(rgba16[i * 4 + 0], rgba16[i * 4 + 1], rgba16[i * 4 + 2], out, i % width, i / width, width, height)
             displayTransform?.transform(out)
