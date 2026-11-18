@@ -122,11 +122,11 @@ object EditStore {
     }
 
     @Synchronized
-    fun saveIfAbsent(context: Context, uri: Uri, suggestion: EditorParams): EditorParams = checked {
+    fun saveIfAbsent(context: Context, uri: Uri, suggestion: EditorParams, baseline: EditorParams = EditorParams()): EditorParams = checked {
         val stored = loadForTransfer(context, uri)
         if (stored.json != null) return@checked stored.params
         repository(context).save(uri, suggestion.toJson().toString(), name(context, uri), origin = "smart",
-            baseline = EditorParams().toJson().toString())
+            baseline = baseline.toJson().toString())
         suggestion
     }
 

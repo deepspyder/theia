@@ -12,6 +12,7 @@ import com.spektralab.android.core.model.ExportRealisation
 import com.spektralab.android.core.model.RenderCacheIdentity
 import com.spektralab.android.engine.RawDecoder
 import com.spektralab.android.engine.EngineClient
+import com.spektralab.android.data.local.AppSettingsStore
 import com.spektralab.android.engine.Rgba16Source
 import com.spektralab.android.data.local.EditStore
 import java.io.File
@@ -31,7 +32,7 @@ internal class ExportRenderCache private constructor(private val context: Contex
     )
 
     private val directory = File(context.cacheDir, "export-rgba16-v1")
-    private val disk by lazy { RenderDiskCache(directory, MAX_BYTES, MAX_AGE_MILLIS) }
+    private val disk by lazy { RenderDiskCache(directory, AppSettingsStore.get(context).snapshot().value.renderCacheBytes, MAX_AGE_MILLIS) }
     private val buildStamp by lazy { buildIdentity() }
     private val generation by lazy { CacheGeneration(File(directory, "build-generation")) }
     @Volatile private var resourceHash: String? = null
@@ -44,13 +45,18 @@ internal class ExportRenderCache private constructor(private val context: Contex
     /** Disposable rendered pixels only; does not read or delete edits or originals. */
     fun maintain() {
         ensureGeneration()
+        disk.setBudget(AppSettingsStore.get(context).snapshot().value.renderCacheBytes)
         disk.trimToBudget()
     }
 
     private fun ensureGeneration() { generation.ensure(buildStamp) { disk.clear() } }
 
     /** Removes only unleased, regenerable rendered frames; originals and edits live elsewhere. */
-    fun clearDisposable() { disk.clear() }
+    fun clearDisposable(checkCancelled: () -> Unit = {}): RenderDiskCache.Maintenance = disk.clear(checkCancelled)
+
+    fun storage(): RenderDiskCache.Snapshot = disk.snapshot()
+
+    fun setBudget(bytes: Long) = disk.setBudget(bytes)
 
     fun prepare(
         uri: Uri,
@@ -65,6 +71,11 @@ internal class ExportRenderCache private constructor(private val context: Contex
 
     private fun prepareInternal(uri: Uri, params: EditorParams, options: ExportOptions,
                                 realisation: ExportRealisation?, cancel: () -> Unit): Request? {
+        cancel()
+        if (safe { disk.snapshot().budget == 0L } == true) {
+            updateStats { it.copy(bypasses = it.bypasses + 1) }
+            return null
+        }
         if (
             ((params.grainActive || params.glareActive) && realisation == null) ||
                 params.dateImprintActive ||
@@ -122,10 +133,12 @@ internal class ExportRenderCache private constructor(private val context: Contex
     }
 
     fun store(request: Request, uri: Uri, result: Rgba16Source, cancel: () -> Unit) {
+        cancel()
         val size = result.width.toLong() * result.height * 8 + 68
         // Published entries plus a temporary replacement must leave a separate reserve for the real
         // output.
-        if (result.width > 131072 || size > MAX_BYTES) return
+        val budget = safe { disk.snapshot().budget } ?: return
+        if (result.width > 131072 || size > budget) return
         safe {
             if (context.cacheDir.usableSpace < size * 2 + RESERVE_BYTES) return@safe false
             if (fingerprint(uri, cancel) != request.sourceHash) return@safe false
@@ -238,7 +251,6 @@ internal class ExportRenderCache private constructor(private val context: Contex
     private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
 
     companion object {
-        private const val MAX_BYTES = 256L * 1024 * 1024
         private const val MAX_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000
         private const val RESERVE_BYTES = 256L * 1024 * 1024
         @Volatile private var instance: ExportRenderCache? = null

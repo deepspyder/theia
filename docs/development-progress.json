@@ -1,7 +1,8 @@
 {
   "date": "2026-11-18",
-  "batch": "R04灰点白平衡吸管已实现：RAW解码源图与成片调色前独立采样、7×7有效邻域、浮点/U16精度、明确取消/应用；独立温度/tint拍摄值轴及常见光源预设，旧自定义/预设/历史摘要兼容。25组235条执行记录、207/207总回归、4配置28张原生截图通过；底部导航遮挡修复已复核。下一项R05设置、缓存与诊断入口。",
+  "batch": "R05设置、缓存与诊断已实现：首页设置入口、三档编辑预览/新图默认材料、原子有界应用偏好及未来损坏保护、动态成片缓存预算和活动租约保护清理、系统CreateDocument手动诊断ZIP及取消/失败清理。20组228条执行记录、207/207总回归与4配置44截图通过；新旧照片参数、原尺寸PNG/NEF输出跨预览预算SHA保持。第一阶段R01—R05完成，下一项R06成片裁切、胶片旁路和透视。",
   "validation": [
+    "2026-11-18 R05：20组228条执行记录、总入口207/207；新图黑白默认材料/旧编辑隔离、三档RAW/PNG预览、同次打开预算冻结及原尺寸整文件SHA跨预算保持；真实进程重启偏好恢复。原子偏好/坏未来超长保护、真实不可写目录、两读者clear/零预算U16保持、可选缓存IO隔离通过；实际SAF选址取消/保存/ENOSPC/慢目标取消删除、电脑ZIP CRC/精确字段白名单通过。4配置44截图、短横屏880dp与取消状态复核，Debug/AndroidTest/Release/Lint零Error，既有74Warning/21Hint无新增位置，14工具测试通过。205原生/运行资产与R04逐字节一致；Release58614312字节/4eedb4757963eda999d7a00c561d8ac4bc1e15035963472030a264ef68eefbc9，原证书/16KiB通过。仅API37 x86_64，非ARM/厂商云端/性能承诺。详见docs/features/r05-settings-cache-diagnostics.md及.tmp/r05-settings/verification.json。",
     "2026-11-18 R04：122组独立有效灰点/相机数学样本、两份真实NEF反解与四轴8次引擎U16逐值对照通过；10份RAW默认/自定义预览及有界导出与R03逐值相同。JPEG/EXIF6/PNG/WebP触点/裁剪旋转、取消/源变化、独立混合轴与虚拟副本批量、6064×4040三格式、实际重启undo/redo通过；总入口207/207，25组235条记录。4配置28截图、导航问题定点复核ship；Debug/AndroidTest/Release/Lint零Error、既有74warning/21hint、14工具测试通过。199资产保持，仅新增RAW标定/JNI改变两ABI主SO；原签名/16KiB对齐通过，Release58545840字节/6a02a931cdf5d7017d40421630ff2462eaeb13918c5a89a41377c43ca1d04ffd。单次顺序原尺寸JPEG18.081s、PNG4.768s、TIFF0.753s，未独立记录缓存计数/交错冷热，不代表编码比较或手机性能。详见docs/features/r04-neutral-white-balance.md及.tmp/r04-neutral/verification.json。",
     "R03最终17组235条执行记录（含重复）、总入口207/207与四处真实kill/WAL恢复通过；完整预览和三格式原尺寸SHA跨重启相同。最终包58496323字节/da4c59eb0e2a3aae15708d208ad3477bc5920b4030c1678f952103edd34b9b67，原签名/双ABI/16KiB与205项原生运行资源保持；Lint零Error，现存74warning/21hint的Kotlin位置均在基线源码行上，未屏蔽检查。原先失败、SQLite满盘夹具和工具栏入口等待修正记录保留。",
     "2026-11-18 R03：旧R02真实重启丢失undo/redo已复现；新三阶段重启/新分支、真实工具栏点击、RGBA16预览与JPEG/PNG/TIFF原尺寸SHA跨重启完全相同。四断点killProcess/WAL回滚、已提交undo恢复，真实SQLITE_FULL、批量/裁剪回收回滚、schema5→6/未知字段/未来与损坏保留、256状态/8MiB配额通过。100次连续调色合为一步，模拟器主提交中位6.874ms/P95 19.373ms，非60fps承诺。总入口207/207，Debug/AndroidTest/Release/Lint零Error、14工具测试和分包检查通过；205项原生/运行资源保持。见docs/features/r03-persistent-history.md及.tmp/r03-history/verification.json，仅API37 x86_64。",
@@ -293,7 +294,8 @@
         "无损RGBA16/CRC/租约/容量/取消原有测试通过",
         "生产单张/批量及同空间多格式缓存接入，原图/实际资源/APK指纹与保守参数键",
         "24MP真实RAW全尺寸首次/命中输出哈希一致；读/写损坏与失效回归通过",
-        "R02自定请求复用原尺寸成片缓存，再按当前目标限额缩小；命名不进入像素身份。实际连续三限额/三容器输出与独立面积参考通过，未新增源/负片阶段缓存。"
+        "R02自定请求复用原尺寸成片缓存，再按当前目标限额缩小；命名不进入像素身份。实际连续三限额/三容器输出与独立面积参考通过，未新增源/负片阶段缓存。",
+        "R05增加1024/1600/2048编辑预览预算与0/64…1024MiB成片磁盘缓存，活动租约/动态裁减/清理确认/真实IO故障保护和设置页接通。预览尺寸不改变已有编辑与原尺寸输出，下一次打开生效；原尺寸细节瓦片/缓存全体系仍未完成。"
       ],
       "remaining": [
         "显式随机seed合同与更多来源/任务覆盖；tile索引与可见纹理策略；设备预算/收益进一步校准"
@@ -305,7 +307,14 @@
         "app/src/androidTest/java/com/spektralab/android/ExportCacheAudit.kt",
         "app/src/androidTest/java/com/spektralab/android/FullSizeCacheAudit.kt",
         "app/src/main/java/com/spektralab/android/data/export/PhotoExportPipeline.kt",
-        "docs/features/r02-export-options.md"
+        "docs/features/r02-export-options.md",
+        "app/src/main/java/com/spektralab/android/core/model/AppSettings.kt",
+        "app/src/main/java/com/spektralab/android/data/local/AppSettingsStore.kt",
+        "app/src/main/java/com/spektralab/android/feature/settings/SettingsViewModel.kt",
+        "app/src/main/java/com/spektralab/android/feature/settings/SettingsScreen.kt",
+        "app/src/androidTest/java/com/spektralab/android/SettingsStorageAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/SettingsUiAudit.kt",
+        "docs/features/r05-settings-cache-diagnostics.md"
       ]
     },
     {
@@ -721,7 +730,8 @@
       "evidence": [
         "新编辑工具、照片图库、整理、版本及项目管理已使用默认values/strings.xml资源；新界面通过stringResource/getString引用。仅完成部分资源化基础，未实现四语言。",
         "R02新增尺寸/命名/配方文案全部在values/export_options.xml，四配置真实界面通过；未将此视为四语言翻译完成。",
-        "R04新增吸管/预设/拍摄值轴的文案位于neutral_white_balance.xml；4配置大字体/横屏和错误状态通过，尚未完成四语言翻译。"
+        "R04新增吸管/预设/拍摄值轴的文案位于neutral_white_balance.xml；4配置大字体/横屏和错误状态通过，尚未完成四语言翻译。",
+        "R05设置/缓存/诊断文案资源化，真实SAF手动保存与字段白名单诊断ZIP、取消/不可写反馈、4配置大字/横屏/系统返回通过；未增加四语言翻译，未复制桌面平台专属开关。"
       ],
       "remaining": [
         "旧页面硬编码文案逐页迁移；补齐四语言资源与切换/回退、长文本和排版验收；新增文案持续资源化。",
@@ -733,7 +743,10 @@
         "app/src/main/java/com/spektralab/android/feature/gallery/EditVersionsController.kt",
         "docs/compatibility/pc-cinestill-parity.md",
         "app/src/main/res/values/export_options.xml",
-        "app/src/main/res/values/neutral_white_balance.xml"
+        "app/src/main/res/values/neutral_white_balance.xml",
+        "app/src/main/res/values/app_settings.xml",
+        "app/src/main/java/com/spektralab/android/data/diagnostics/DiagnosticReport.kt",
+        "docs/features/r05-settings-cache-diagnostics.md"
       ]
     },
     {

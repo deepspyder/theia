@@ -14,10 +14,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.exifinterface.media.ExifInterface
+import androidx.core.graphics.scale
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.spektralab.android.core.color.DisplayP3Icc
 import com.spektralab.android.core.color.NeutralWhiteBalance
+import com.spektralab.android.data.local.AppSettingsStore
 import com.spektralab.android.core.develop.SmartDevelop
 import com.spektralab.android.core.develop.SmartDevelopStyle
 import com.spektralab.android.core.model.EditSnapshot
@@ -103,6 +105,20 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     private val app get() = getApplication<Application>()
+    private val appPreferences by lazy { AppSettingsStore.get(app) }
+    private var interactivePreviewEdge = 2048
+
+    /** Only truly new photographs receive app defaults; stored edits and resets keep their own contract. */
+    private fun newPhotoParams(): EditorParams {
+        val settings = appPreferences.snapshot().value
+        return EditorParams().apply {
+            if (films.any { it.id == settings.defaultFilm } && papers.any { it.id == settings.defaultPaper } &&
+                StockCatalog.canPrint(settings.defaultFilm, settings.defaultPaper)) {
+                filmId = settings.defaultFilm; paperId = settings.defaultPaper
+                if (filmId == "cinestill_800t") halationModelVersion = com.spektralab.android.core.model.HalationModel.BACK_REFLECTION.version
+            }
+        }
+    }
     internal val neutralPick by lazy { NeutralPickController(app, viewModelScope) }
     internal val canPickNeutral: Boolean get() = hasPhoto && lastResult != null && !busy && !isCropping &&
         !isExporting && !isBatchExporting && !isApplyingEdits && !previewWorkRunning && renderTaskState.active == null
@@ -1305,13 +1321,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // 解码 RAW → 显示源图 → 开会话。
     private suspend fun decodeRawAndOpen(uri: Uri, photo: Long = photoGeneration, editParams: EditorParams = params.copy()) {
-        val raw = decodeRaw(uri, editParams, photo = photo)
+        val previewEdge = interactivePreviewEdge
+        val raw = resizeRaw(decodeRaw(uri, editParams, photo = photo), previewEdge)
         if (photo != photoGeneration || currentUri != uri) return
         val task = currentCoroutineContext()
         // Hold/split comparison shows the camera's display rendition, not untonemapped sensor RGB.
         // Keep it stable across white-balance and lens edits; only the film input follows those edits.
         val original = sourceBitmap ?: com.spektralab.android.data.image.OriginalPreview.raw(app, uri,
-            RawDecodeCancellation { cleared || photo != photoGeneration || !task.isActive }) ?: run {
+            RawDecodeCancellation { cleared || photo != photoGeneration || !task.isActive }, previewEdge) ?: run {
             val argb = ColorPipeline.proPhotoLinearToSrgbArgb(raw.linearProPhoto, raw.width, raw.height)
             Bitmap.createBitmap(argb, raw.width, raw.height, Bitmap.Config.ARGB_8888)
         }
@@ -1981,6 +1998,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (isApplyingEdits) return
         if (isExporting || isBatchExporting) return
         val photo = invalidatePhotoWork()
+        interactivePreviewEdge = appPreferences.snapshot().value.previewLongEdge
         currentUri = uri
         smartMessage=""
         clearPhotoState()
@@ -2019,7 +2037,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                             cropAspect = if (saved.cropW >= 1f && saved.cropH >= 1f) "原始" else "自定义"
                             append("已恢复上次编辑")
                         } else {
-                            params = EditorParams()
+                            params = newPhotoParams()
                             resetGeometry()
                         }
                         seedHistory(uri, params.copy())
@@ -2069,24 +2087,25 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** No renderer/session work here. The import queue and first-photo load share this lock. */
-    private suspend fun ensureSmartParams(uri: Uri, style: SmartDevelopStyle, enabled: Boolean): EditorParams? {
+    private suspend fun ensureSmartParams(uri: Uri, style: SmartDevelopStyle, enabled: Boolean, defaults: EditorParams? = null): EditorParams? {
         if(!enabled)return null
         return try {
             smartAnalysisMutex.withLock {
                 withContext(Dispatchers.IO) { EditStore.load(app,uri) }?.let { return@withLock it }
                 val catalog=withContext(Dispatchers.Main.immediate) { films.toList() to papers.toList() }
                 if(catalog.first.isEmpty() || catalog.second.isEmpty())return@withLock null
+                val baseline=defaults ?: withContext(Dispatchers.Main.immediate) { newPhotoParams() }
                 val bitmap=withContext(Dispatchers.IO) { decodeSmartPreview(uri) }
                 val suggestion=try {
                     withContext(Dispatchers.Default) {
-                        SmartDevelop.analyze(bitmap)?.let { SmartDevelop.recommend(EditorParams(),it,style,catalog.first,catalog.second) }
+                        SmartDevelop.analyze(bitmap)?.let { SmartDevelop.recommend(baseline,it,style,catalog.first,catalog.second) }
                     }
                 } finally { bitmap.recycle() }
                 if(suggestion==null)return@withLock null
                 if(!currentCoroutineContext().isActive)return@withLock null
                 val committed=withContext(Dispatchers.IO) {
                     // A manual/imported sidecar wins even if it appeared during analysis.
-                    EditStore.saveIfAbsent(app, uri, suggestion)
+                    EditStore.saveIfAbsent(app, uri, suggestion, baseline)
                 }
                 if(committed===suggestion)withContext(Dispatchers.Main.immediate) { freshlySmartDeveloped.add(uri) }
                 committed
@@ -2313,6 +2332,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val options = captureExportOptions()
         val batchSmartStyle = smartStyle
         val batchAutoDevelop = smartAutoEnabled
+        val batchDefaults = newPhotoParams()
         val interruptedPreview = pendingPreviewWork()
         val hostLease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
             catch (failure: Exception) { fail("无法启动导出服务: ${failure.message}"); return }
@@ -2336,7 +2356,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     // Resolve missing smart edits before any output; later sidecar writes cannot change this batch.
                     val edits = batchPhotos.associateWith { uri ->
                         batchEdits[uri] ?: EditSnapshot.capture(
-                            ensureSmartParams(uri, batchSmartStyle, batchAutoDevelop) ?: EditorParams()
+                            ensureSmartParams(uri, batchSmartStyle, batchAutoDevelop, batchDefaults) ?: batchDefaults.copy()
                         )
                     }
                     for ((i, uri) in batchPhotos.withIndex()) {
@@ -2770,7 +2790,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         return runCatching { app.contentResolver.openInputStream(source)?.use(::ExifInterface) }.getOrNull()
     }
 
-    private fun decodeSampled(uri: Uri, maxLongEdge: Int = 2048, preserveColorSpace: Boolean = false): Bitmap {
+    private fun decodeSampled(uri: Uri, maxLongEdge: Int = interactivePreviewEdge, preserveColorSpace: Boolean = false): Bitmap {
         if (Build.VERSION.SDK_INT >= 28) {
             return ImageDecoder.decodeBitmap(ImageDecoder.createSource(app.contentResolver, uri)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
@@ -2804,7 +2824,17 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(270f)
             }
         }
-        return if (matrix.isIdentity) bitmap else Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        var oriented = if (matrix.isIdentity) bitmap else Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            .also { if (it !== bitmap) bitmap.recycle() }
+        val edge = max(oriented.width, oriented.height)
+        if (edge > maxLongEdge) {
+            val scale = maxLongEdge.toDouble() / edge
+            val sized = oriented.scale((oriented.width * scale).roundToInt().coerceAtLeast(1),
+                (oriented.height * scale).roundToInt().coerceAtLeast(1),true)
+            if (sized !== oriented) oriented.recycle()
+            oriented = sized
+        }
+        return oriented
     }
 
     private fun decodeBitmapForExport(uri: Uri, maxLongEdge: Int): Bitmap {

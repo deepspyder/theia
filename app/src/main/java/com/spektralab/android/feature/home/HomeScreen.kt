@@ -86,6 +86,7 @@ internal fun HomeScreen(
     onOpenTestImage: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenSavedPhotos: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
     val preview = vm.rendered ?: vm.sourceBitmap
@@ -109,6 +110,11 @@ internal fun HomeScreen(
                             Icon(Icons.Rounded.Tune, "更多操作", modifier = Modifier.size(20.dp))
                         }
                         DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.settings_title)) },
+                                enabled = !vm.busy && !vm.isExporting && !vm.isBatchExporting,
+                                onClick = { moreExpanded = false; onOpenSettings() },
+                            )
                             DropdownMenuItem(
                                 text = { Text("测试图") },
                                 onClick = { moreExpanded = false; onOpenTestImage() },

@@ -14,6 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -65,7 +67,7 @@ internal fun TheiaRoot(vm: EditorViewModel) {
     BackHandler(enabled = route != AppRoute.Home) {
         route = when (route) {
             AppRoute.Home -> AppRoute.Home
-            AppRoute.Editor, AppRoute.About, AppRoute.ViewingStand, AppRoute.SavedPhotos -> AppRoute.Home
+            AppRoute.Editor, AppRoute.About, AppRoute.ViewingStand, AppRoute.SavedPhotos, AppRoute.Settings -> AppRoute.Home
             AppRoute.FilmStocks -> AppRoute.Editor
         }
     }
@@ -82,6 +84,7 @@ internal fun TheiaRoot(vm: EditorViewModel) {
                 onOpenTestImage = { vm.openTestImage(); route = AppRoute.Editor },
                 onOpenAbout = { route = AppRoute.About },
                 onOpenSavedPhotos = { vm.lightTableProjects.refresh(); route = AppRoute.SavedPhotos },
+                onOpenSettings = { route = AppRoute.Settings },
             )
             AppRoute.SavedPhotos -> com.spektralab.android.feature.gallery.SavedPhotosScreen(
                 controller = vm.savedPhotos, enabled = !vm.busy && !vm.isExporting && !vm.isBatchExporting,
@@ -128,6 +131,15 @@ internal fun TheiaRoot(vm: EditorViewModel) {
                 FilmStockScreen(vm, onBack = { route = AppRoute.Editor }, startWithPaper = libraryStartsWithPaper)
             }
             AppRoute.About -> AboutScreen(onBack = { route = AppRoute.Home }, modifier = Modifier.fillMaxSize())
+            AppRoute.Settings -> {
+              val owner = LocalContext.current as androidx.activity.ComponentActivity
+              val settings = remember(owner) { androidx.lifecycle.ViewModelProvider(owner)[com.spektralab.android.feature.settings.SettingsViewModel::class.java] }
+              com.spektralab.android.feature.settings.SettingsScreen(
+                onBack = { route = AppRoute.Home },automatic = vm.smartAutoEnabled,onAutomaticChange = { vm.smartAutoEnabled = it },
+                controller = settings,
+                workspace = com.spektralab.android.data.diagnostics.DiagnosticReport.Workspace(
+                    vm.photos.size,vm.hasPhoto,vm.currentIsRaw,vm.previewWidth(),vm.previewHeight(),vm.isExporting || vm.isBatchExporting))
+            }
           }
         }
 

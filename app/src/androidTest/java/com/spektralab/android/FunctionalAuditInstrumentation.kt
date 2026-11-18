@@ -137,6 +137,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        settingsMode = audit?.takeIf { it in setOf("settings-storage", "settings-editor", "settings-ui", "settings-process") }
         neutralMode = audit?.takeIf { it in setOf("neutral-math", "neutral-raw", "neutral-boundaries", "neutral-editor", "neutral-layout", "neutral-process") }
         historyEditorOnly = audit == "history-editor"
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
@@ -284,10 +285,19 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var historyStorageOnly = false
     private var historyEditorOnly = false
     private var neutralMode: String? = null
+    private var settingsMode: String? = null
     private var historyCrashPhase: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        settingsMode?.let { mode ->
+            case(mode) { if(mode == "settings-storage") SettingsStorageAudit(this,output).run()
+                else SettingsUiAudit(this,output).run(mode) }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         neutralMode?.let { mode ->
             case(mode) { when(mode) {
                 "neutral-math" -> NeutralBalanceMathAudit(this,output).run()

@@ -4,6 +4,7 @@ import com.spektralab.android.engine.Rgba16Source
 import java.io.Closeable
 import java.io.File
 import java.io.RandomAccessFile
+import java.io.IOException
 import java.util.zip.CRC32
 
 /**
@@ -13,14 +14,14 @@ import java.util.zip.CRC32
  */
 internal class RenderDiskCache(
     private val directory: File,
-    private val maxBytes: Long,
+    @Volatile private var maxBytes: Long,
     private val maxAgeMillis: Long = Long.MAX_VALUE,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val leases = mutableMapOf<String, Int>()
 
     init {
-        require(maxBytes >= HEADER_BYTES)
+        require(maxBytes == 0L || maxBytes >= HEADER_BYTES)
         check(directory.isDirectory || directory.mkdirs()) { "Cannot create render cache" }
         directory.listFiles()?.filter { it.name.endsWith(".partial") }?.forEach(File::delete)
         trim(0)
@@ -130,10 +131,35 @@ internal class RenderDiskCache(
     }
 
     @Synchronized
-    fun clear() {
-        entries()
-            .filter { leases.getOrDefault(it.nameWithoutExtension, 0) == 0 }
-            .forEach(File::delete)
+    fun clear(checkCancelled: () -> Unit = {}): Maintenance {
+        var freed = 0L
+        var failures = 0
+        for (file in entries()) {
+            checkCancelled()
+            if (leases.getOrDefault(file.nameWithoutExtension, 0) > 0) continue
+            val bytes = file.length()
+            if (file.delete()) freed += bytes else failures++
+        }
+        return Maintenance(freed, failures, snapshot())
+    }
+
+    data class Snapshot(val bytes: Long, val entries: Int, val leasedBytes: Long, val readers: Int, val budget: Long)
+    data class Maintenance(val freedBytes: Long, val failedFiles: Int, val retained: Snapshot)
+
+    @Synchronized
+    fun snapshot(): Snapshot {
+        val files = entries()
+        return Snapshot(files.sumOf(File::length), files.size,
+            files.filter { leases.getOrDefault(it.nameWithoutExtension, 0) > 0 }.sumOf(File::length),
+            leases.values.sum(), maxBytes)
+    }
+
+    /** A lower budget retires unleased entries; existing readers finish before the rest is trimmed. */
+    @Synchronized
+    fun setBudget(bytes: Long) {
+        require(bytes == 0L || bytes >= HEADER_BYTES)
+        maxBytes = bytes
+        trim(0)
     }
 
     @Synchronized
@@ -194,11 +220,11 @@ internal class RenderDiskCache(
 
     private fun entry(key: String) = File(directory, "$key.rgba16")
 
-    private fun entries(): List<File> =
-        directory
-            .listFiles()
-            ?.filter { it.isFile && it.name.matches(Regex("[0-9a-f]{64}\\.rgba16")) }
-            .orEmpty()
+    private fun entries(): List<File> {
+        val files = directory.listFiles() ?: throw IOException("Cannot read render cache")
+        return files.filter { it.isFile && it.name.matches(Regex("[0-9a-f]{64}\\.rgba16")) &&
+            it.canonicalFile.parentFile == directory.canonicalFile }
+    }
 
     private fun trim(additional: Long, except: File? = null): Boolean {
         val files = entries()
