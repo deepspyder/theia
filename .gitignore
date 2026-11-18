@@ -33,6 +33,7 @@ CHANGELOG.md
 app/src/main/assets/engine/resources/
 !app/src/main/assets/engine/resources/README.md
 /app/build
+/app/release
 
 # Local tooling, crash logs and generated release packages
 /.tmp/
