@@ -1,7 +1,10 @@
 {
-  "date": "2026-11-17",
-  "batch": "本轮兼容代码规范审查：修复Python优化模式可绕过ABI构建门槛，拆分C++诊断模板，移动固定掩码计算，统一原生格式与构建顺序。双ABI构建、14个工具主测试、原生378/30组合同和25组像素摘要、严格窗口/材料/取消回归通过。147个Kotlin分包边界通过；2713行EditorViewModel的结构收敛与客户Adreno830真机验收仍待后续。",
+  "date": "2026-11-18",
+  "batch": "按本地参考SpektraLab 2.4.2（b51e6723）重新核对已有功能与差距，新增26项分阶段清单并保留F01–F20。完成R01 RAW内容源访问恢复：同fd一次暂存、分段资产和取消/错误边界；真实跨UID provider在旧宿主自然失败，新宿主通过。其余25项按依赖排队，下一批R02自定输出尺寸/名称/配方管理。未改共享引擎或替换材料。",
   "validation": [
+    "2026-11-18 R01：21项RAW访问合同及原有file/FileProvider/pipe预览和导出逐值对照通过；真实跨UID提供器触发旧实现RAW open IO，新实现恢复正确。真实全尺寸解码取消、六种12/14bit Nikon NEF导入/截断拒绝通过，3组均PASS。Debug/AndroidTest/Release构建、14项工具单测与分包校验通过。记录raw-provider-recovery.md，证据.tmp/libraw-upgrade/raw-input-green2/summary.json；未拿到小米15Ultra失败DNG，真机待验。",
+    "同步上批片边/取消修复：59组297去重用例通过，总入口207；128张NEF/DNG/JPEG/PNG/WebP、四尺寸、四编码/色域输出完整解码与同格式独立整图参考最大通道差0。严格128MiB绑定/8MiB窗口、20片边格式/模式、奇数几何及42项材料/随机/取消通过；98次Vulkan预检零失败。均仅API37 x86_64；曾发生空间不足和模拟器watchdog，现场与最终重跑结果保留，见raw-overscan-export-regression.md。",
+    "上批原尺寸NEF JPEG95模拟器中位数（顺序各3次，非交错）：无片边冷10.886→10.822秒、缓存1.267→1.307秒、135整条11.872→11.092秒、扩展片门9.705→9.785秒。未缩图/减效果，不能推出手机加速；R01本批未重测此性能矩阵。",
     "2026-11-17规范复核：python -O空着色器目录错误放行已复现并修复；显式ValueError和截断/类型/偏移/动态索引反例在普通及优化模式通过。CMake长诊断逻辑拆到受依赖追踪的C++模板，除掩码循环外提外生成后端token一致；195个DEX/引擎资源保持。报告docs/engineering/code-quality-review-2026-11-17.md，证据.tmp/code-quality-review/verification.json。",
     "公共v3最终验证：三张客户JPEG的99张实际导出中33 PNG RGB8与33 TIFF RGB16全通道相同，33 JPEG平均绝对通道差最大2.732819/255。42组材料/几何/随机身份与负片消费、取消重开、独立host死亡/重启/FD与交接通过；全部结果仅API37 x86_64。报告adreno-window-shader-abi-2026-11-17.md。",
     "公共v3 RAW各三轮交错：原生完整导出6251.86→6154.85ms、原生渲染2224.39→2185.06ms；应用冷9473→9368ms，缓存1000→923ms。六轮文件摘要一致，GPU池帧峰值1243027572字节保持；样本有限，不承诺真机加速。证据.tmp/adreno-window-core/verification.json；发布包原签名、双ABI、16KiB对齐通过。",
@@ -314,7 +317,8 @@
         "2026-11-15 窗口化v2：显式binding步长、offset/range与逻辑used，完整IIR列打包、FIR/几何源范围和分窗最大值归约；受限128MiB/8MiB整图及旧像素对照通过，部分跨网格只读源仍整幅，未降低全管线GPU峰值。",
         "2026-11-16 vivo管线兼容：143 SPIR-V保持、17组U16摘要、66张正式导出、30组重试结果及正常路径RAW交错对照通过；报告vivo-vulkan-export-2026-11-16.md。自然驱动失败未在模拟器复现。",
         "2026-11-17 DIR采用原始内核局部分批以避开Adreno830拒绝的windowed模块，保持U16与正式文件像素；378组规划、17组原图/RAW、66张导出和严格窗口材料/取消回归通过。客户原驱动自然失败尚需新包复测。",
-        "Adreno830新增矩阵windowed失败后改公共v3标量/固定表接口，98项管线预检、官方验证层与25组原图/RAW U16对照通过；96原始/bounded模块保持，47个窗口二进制ABI和地址掩码在打包前验证。具体驱动触发仍未证实。"
+        "Adreno830新增矩阵windowed失败后改公共v3标量/固定表接口，98项管线预检、官方验证层与25组原图/RAW U16对照通过；96原始/bounded模块保持，47个窗口二进制ABI和地址掩码在打包前验证。具体驱动触发仍未证实。",
+        "2026-11-18同步62de213片边窗口与灯台取消修复：严格128MiB绑定/8MiB窗口完成全尺寸片边，128张实际输出独立完整像素比较通过；59组297去重回归通过，仅模拟器。详见raw-overscan-export-regression.md。"
       ],
       "remaining": [
         "逐阶段活跃区间测量；全局归约、卷积/IIR/颗粒分块等价性；24MP/50MP 真机验证",
@@ -381,7 +385,8 @@
         "tools/test_verify_windowed_spirv.py",
         "app/src/main/cpp/cmake/templates/VulkanPreflight.cpp.in",
         "app/src/main/cpp/cmake/templates/VulkanPipelineContext.cpp.in",
-        "docs/engineering/code-quality-review-2026-11-17.md"
+        "docs/engineering/code-quality-review-2026-11-17.md",
+        "docs/compatibility/raw-overscan-export-regression.md"
       ]
     },
     {
@@ -469,7 +474,8 @@
         "第四批正式DBv4虚拟副本、从任意版复制/命名/重命名/安全删除、私有只读原片路由、每版独立参数/历史/选择与持久工作台恢复接通；27组40记录、真实旧APK升级、四处进程终止和三种屏幕配置通过，RAW全尺寸摘要及缓存保持。",
         "F08回归补充修复：图库刷新/打开/工作台恢复/原片校验先登记LAZY任务再启动，避免极快IO完成后加载标志悬挂；原片恢复完整流程和连续32次刷新通过。",
         "第五批图库批量移除：DBv5可见性元数据、选择/长按/跨页全选/确认/安全移除/重新导入恢复完成。130条隔离存储与66条UI、4配置及独立限定范围复核通过；不删除手机原片、编辑版本、相册归属或工作台。",
-        "2026-11-14图库批量整理：新增多选批量加入用户相册，事务写入成员关系并保留原片和编辑；三张照片批量加入回归通过。加入观景台临时工作台与已保存观景台项目入口已接入。"
+        "2026-11-14图库批量整理：新增多选批量加入用户相册，事务写入成员关系并保留原片和编辑；三张照片批量加入回归通过。加入观景台临时工作台与已保存观景台项目入口已接入。",
+        "R01 RAW读取同fd恢复、分段资产精确边界、取消与错误不盲重试已实现；真实跨UID fd自然失败的红绿记录及21合同、原预览/导出对照通过。小米15Ultra原失败DNG与真机待验，非全图库验收。"
       ],
       "remaining": [
         "跨重启撤销历史尚未持久保存；ARM真机多版本持续调节与系统恢复仍待验收。正式虚拟副本与默认/副本会话恢复本批已接通。",
@@ -504,7 +510,10 @@
         "docs/features/f07-edit-versions.md",
         "app/src/main/java/com/spektralab/android/feature/gallery/PhotoSelectionController.kt",
         "app/src/main/java/com/spektralab/android/feature/gallery/PhotoSelectionUi.kt",
-        "docs/performance/render-library-performance-2026-11-14.md"
+        "docs/performance/render-library-performance-2026-11-14.md",
+        "app/src/main/java/com/spektralab/android/engine/RawDecoder.kt",
+        "app/src/androidTest/java/com/spektralab/android/RawInputAccessAudit.kt",
+        "docs/compatibility/raw-provider-recovery.md"
       ]
     },
     {
@@ -643,7 +652,9 @@
       "status": "in_progress",
       "evidence": [
         "首轮已接入真实单张/批量：ExportFrameRequest、ExportCoordinator、原子任务/发布凭据日志、独立 :render host、只读描述符、取消/死亡、前台/CPU租约、恢复预览前设备释放确认。pending 与已提交凭据恢复、源变化拒绝提交等审计通过；不是完整任务重启续跑或全部导出入口迁移完成。",
-        "2026-11-15 生产RAW原尺寸同冻结参数小图结构参考与异常结果拦截；256MiB/7天成片缓存、安装代际、24小时已知暂存回收，租约和原片/编辑/项目保护通过。只读签名不进入输出像素；真机和完整中断矩阵仍待。"
+        "2026-11-15 生产RAW原尺寸同冻结参数小图结构参考与异常结果拦截；256MiB/7天成片缓存、安装代际、24小时已知暂存回收，租约和原片/编辑/项目保护通过。只读签名不进入输出像素；真机和完整中断矩阵仍待。",
+        "2026-11-18同步62de213片边窗口与灯台取消修复：严格128MiB绑定/8MiB窗口完成全尺寸片边，128张实际输出独立完整像素比较通过；59组297去重回归通过，仅模拟器。详见raw-overscan-export-regression.md。",
+        "R01已统一到预览/原尺寸解码/相机矩阵的RAW内容输入路径；只在open/metadata IO失败做一次同fd暂存，模拟器回归通过；非持久任务续跑。"
       ],
       "remaining": [
         "主进程退出/满盘/发布每个中断点与恢复UI；持久任务安全重启、去重和云端异常边界。",
@@ -664,7 +675,8 @@
         "app/src/main/java/com/spektralab/android/data/cache/CacheMaintenance.kt",
         "app/src/androidTest/java/com/spektralab/android/RenderAppearanceAudit.kt",
         "app/src/androidTest/java/com/spektralab/android/CacheMaintenanceAudit.kt",
-        "docs/compatibility/raw-export-windowed-v2-2026-11-15.md"
+        "docs/compatibility/raw-export-windowed-v2-2026-11-15.md",
+        "docs/compatibility/raw-overscan-export-regression.md"
       ]
     },
     {
@@ -717,15 +729,15 @@
     }
   ],
   "next": [
-    "先在小米17Pro核对descriptor-windows-v2同原片、同CineStill参数及驱动/耗时；模拟器128MiB/8MiB已通过，不能代替真机验收。",
-    "继续F03/F16的跨网格源窗口、跨节点/整帧预算、ARM连续负载；保留全host入口、源/负片/扫描阶段缓存、精确suspend/resume和完整故障矩阵。",
-    "PC一致性后续优先核对F17工作空间、非中性后期及完整预览/输出表面；本轮只验收CineStill默认原生链路与选择入口，不扩大为全部PC功能移植完成。",
-    "按用户本轮优先级完成F14模型代码与模拟器核对，再补ARM实机、真实夜景及持续性能验收；F14保留进行中，不把高光模拟补偿当成F19 HDR。",
-    "本次优先F14之后，原排期的下个独立功能F10半格双图项目：两孔位独立源图、曝光/构图/白平衡与共用look，日期/片边/输出和缺源处理按同一图像合同开发。F09高像素/增量编码及真机等剩余项继续保留。",
-    "F07统一源版本与新鲜度合同继续贯穿；补长期URI、真实云端、满盘、跨重启历史与ARM真机验收。图库批量移除已支持；批量评分色标整理和相册顺序仍未包含。",
-    "F06与F05补充ARM真机触感、输入法、系统返回、持续调节性能和颜色验收；F04超宽图等边界保持。",
-    "F03继续贯穿：IIR有界执行、完整进程和驱动容量、50MP应用超时与真机验收仍待完成，不阻塞独立功能。",
-    "F01和F02继续全局任务身份、成本、随机seed和tile合同；F08/F09持久观景台和首批输出已有实现，其剩余范围保留，按依赖继续F10半格及其他工作包。"
+    "按docs/upstream-2.4.2-android-roadmap.md继续26项任务：R01输入合同与模拟器已验收；下一批R02自定长/短边、MP、名称模板和导出配方管理，然后R03持久历史与R04白平衡吸管。新增多源/蒙版/水印等依赖和验收逐项列出，不能视为已经完成。",
+    "小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。",
+    "R10及F01/F02/F03/F16继续跨节点峰值预算、阶段缓存、全入口host、持久源身份/授权、完整中断/满盘/取消矩阵与安全重试。保留精确suspend/resume和ARM连续负载验收。",
+    "R06/R07/R08/R09分别接成片几何与旁路、Decode场景曲线、真实专业色彩输出、全尺寸细节；F17非中性成片工作空间与PC独立对照继续，默认CineStill一致不代表所有后期表面一致。",
+    "R11半格双源项目按稳定资产/持久历史/两级几何与任务合同接入，随后R12双重曝光；保留F10原范围，单张135_half与灯台拼图不冒充该能力。",
+    "R13独立冲印/contrast mask与R14–R18局部层/画笔/scene层/自动主体/水印分开交付；自动主体先调查本地模型与许可，不能直接移植Apple Vision。",
+    "F07/F08/F09补长期URI、云端/缺源、图库批量整理、外部加入持久灯台、更高像素/分带导出；原有自由画布及首批正式输出保持。",
+    "F04/F05/F06/F14继续ARM真机颜色/触感/输入法/系统恢复、持续调节/温控和真实夜景；F17逐页资源化与四语言按R21推进。",
+    "R19电影画幅/R20镜头手选按引擎能力验证；R22 HDR、R24 minilab、R25目录只读、R26自动化分别研究，不替换现有默认模型或开放未经授权的外部入口。"
   ],
   "tasks": [
     {

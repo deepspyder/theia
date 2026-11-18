@@ -2,12 +2,12 @@ package com.spektralab.android.engine
 
 import android.content.Context
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
 import java.io.File
+import java.io.EOFException
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -15,7 +15,7 @@ import java.nio.ByteOrder
 /**
  * RAW 解码（LibRaw，JNI）。
  *
- * LibRaw 接受文件路径：本地文件和可寻址的内容描述符直接读取，管道等来源才暂存到 cacheDir。
+ * LibRaw 接受文件路径：完整可寻址描述符直接读取；分段/管道或无法原生重开的来源暂存到 cacheDir。
  * 解码输出线性 ProPhoto float RGB（已应用相机白平衡），以 input_color_space="ProPhoto RGB" 交给引擎。
  */
 object RawDecoder {
@@ -126,7 +126,7 @@ object RawDecoder {
         withRawInput(context, uri, "raw_preview_", cancellation) { nativeDisplayPreview(it, maxLongEdge, cancellation) }
 
     /** Descriptor lifetime encloses LibRaw's synchronous read; no decoded pixels are cached here. */
-    private fun <T> withRawInput(context: Context, uri: Uri, prefix: String,
+    internal fun <T> withRawInput(context: Context, uri: Uri, prefix: String,
                                  cancellation: RawDecodeCancellation?, decode: (String) -> T): T {
         val started = SystemClock.elapsedRealtime()
         checkCancellation(cancellation)
@@ -135,39 +135,68 @@ object RawDecoder {
             return decode(path).also { logDecode("file", started) }
         }
 
-        val descriptor = runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
-        descriptor?.use { opened ->
-            val regular = runCatching { OsConstants.S_ISREG(Os.fstat(opened.fileDescriptor).st_mode) }.getOrDefault(false)
+        val descriptor = runCatching { context.contentResolver.openAssetFileDescriptor(uri, "r") }.getOrNull()
+        descriptor?.use { asset ->
+            val opened = asset.parcelFileDescriptor
+            val stat = runCatching { Os.fstat(opened.fileDescriptor) }.getOrNull()
+            val regular = stat != null && OsConstants.S_ISREG(stat.st_mode)
             val seekable = regular && runCatching {
-                Os.lseek(opened.fileDescriptor, 0, OsConstants.SEEK_CUR) == 0L
+                Os.lseek(opened.fileDescriptor, asset.startOffset, OsConstants.SEEK_SET) == asset.startOffset
             }.getOrDefault(false)
-            if (seekable) {
-                return decode("/proc/self/fd/${opened.fd}").also { logDecode("descriptor", started) }
+            val wholeFile = asset.startOffset == 0L &&
+                (asset.declaredLength < 0 || asset.declaredLength == stat?.st_size)
+            if (seekable && wholeFile) {
+                try {
+                    checkCancellation(cancellation)
+                    return decode("/proc/self/fd/${opened.fd}").also { logDecode("descriptor", started) }
+                } catch (failure: SpkException) {
+                    checkCancellation(cancellation)
+                    // Fixed LibRaw pin reports open_file IO failures at these two stages.
+                    // Never retry unpack/process errors, absent optional previews, or cancellation.
+                    if (failure.message != "RAW open: Input/output error" &&
+                        failure.message != "RAW metadata: Input/output error") throw failure
+                    try {
+                        // dup/reopen can have changed the shared offset. Reuse the granted fd;
+                        // fetching the URI again can repeat a cloud download or lose permission.
+                        Os.lseek(opened.fileDescriptor, 0, OsConstants.SEEK_SET)
+                        return stageInput(context, prefix, asset.createInputStream(), cancellation,
+                            asset.declaredLength, decode).also { logDecode("descriptor-staged", started) }
+                    } catch (fallback: Exception) {
+                        if (fallback !== failure) fallback.addSuppressed(failure)
+                        throw fallback
+                    }
+                }
             }
-            if (!regular) {
-                // Consume the descriptor already opened by a cloud provider; do not fetch it twice.
-                return stageInput(context, prefix, ParcelFileDescriptor.AutoCloseInputStream(opened),
-                    cancellation, decode).also { logDecode("staged", started) }
-            }
+            return stageInput(context, prefix, asset.createInputStream(), cancellation,
+                asset.declaredLength, decode).also { logDecode("staged", started) }
         }
 
         val input = context.contentResolver.openInputStream(uri) ?: throw SpkException("无法读取 RAW 文件")
-        return stageInput(context, prefix, input, cancellation, decode).also { logDecode("staged", started) }
+        return stageInput(context, prefix, input, cancellation, -1, decode).also { logDecode("staged", started) }
     }
 
     private fun <T> stageInput(context: Context, prefix: String, input: InputStream,
-                               cancellation: RawDecodeCancellation?, decode: (String) -> T): T = input.use { source ->
+                               cancellation: RawDecodeCancellation?, length: Long, decode: (String) -> T): T = input.use { source ->
+        checkCancellation(cancellation)
         val temporary = File.createTempFile(prefix, ".raw", context.cacheDir)
         try {
             temporary.outputStream().use { target ->
                 val buffer = ByteArray(64 * 1024)
+                var copied = 0L
                 while (true) {
                     checkCancellation(cancellation)
-                    val count = source.read(buffer)
-                    if (count < 0) break
+                    if (length >= 0 && copied == length) break
+                    val count = source.read(buffer, 0,
+                        if (length >= 0) minOf(buffer.size.toLong(), length - copied).toInt() else buffer.size)
+                    if (count < 0) {
+                        if (length >= 0) throw EOFException("RAW input ended before its declared length")
+                        break
+                    }
                     target.write(buffer, 0, count)
+                    copied += count
                 }
             }
+            checkCancellation(cancellation)
             decode(temporary.absolutePath)
         } finally {
             temporary.delete()
