@@ -41,6 +41,8 @@ class EditorParams {
     var cameraWbKelvin by mutableFloatStateOf(5500f)
     var cameraWbTint by mutableFloatStateOf(0f)
     var cameraWbCustom by mutableStateOf(false)
+    var cameraWbTemperatureAsShot by mutableStateOf(false)
+    var cameraWbTintAsShot by mutableStateOf(false)
 
     // 场景宽容度 / 置位（RFC-023，SHOOT）。默认值对齐 engine params.hpp 的 SceneLatitudeParams：
     // 两侧 room=0 表示该侧关闭。由「测量宽容度 → 应用」填入求解结果。
@@ -170,6 +172,8 @@ class EditorParams {
         .put("camera_wb_kelvin", cameraWbKelvin.toDouble())
         .put("camera_wb_tint", cameraWbTint.toDouble())
         .put("camera_wb_custom", cameraWbCustom)
+        .put("camera_wb_temperature_as_shot", cameraWbTemperatureAsShot)
+        .put("camera_wb_tint_as_shot", cameraWbTintAsShot)
         .put("scene_latitude_active", sceneLatitudeActive)
         .put("scene_latitude_norm", sceneLatitudeNorm)
         .put("scene_latitude_highlight_knee", sceneLatitudeHighlightKnee.toDouble())
@@ -278,6 +282,7 @@ class EditorParams {
         smartDevelopStyle=p.smartDevelopStyle;smartDevelopSummary=p.smartDevelopSummary;smartDevelopVersion=p.smartDevelopVersion
         autoExposureMethod = p.autoExposureMethod; autoExposure = p.autoExposure; filmFormatMm = p.filmFormatMm
         cameraWbKelvin = p.cameraWbKelvin; cameraWbTint = p.cameraWbTint; cameraWbCustom = p.cameraWbCustom
+        cameraWbTemperatureAsShot = p.cameraWbTemperatureAsShot; cameraWbTintAsShot = p.cameraWbTintAsShot
         sceneLatitudeActive = p.sceneLatitudeActive; sceneLatitudeNorm = p.sceneLatitudeNorm
         sceneLatitudeHighlightKnee = p.sceneLatitudeHighlightKnee; sceneLatitudeHighlightRoom = p.sceneLatitudeHighlightRoom
         sceneLatitudeShadowKnee = p.sceneLatitudeShadowKnee; sceneLatitudeShadowRoom = p.sceneLatitudeShadowRoom
@@ -346,6 +351,8 @@ class EditorParams {
             p.cameraWbKelvin = json.optDouble("camera_wb_kelvin", 5500.0).toFloat()
             p.cameraWbTint = json.optDouble("camera_wb_tint", 0.0).toFloat()
             p.cameraWbCustom = json.optBoolean("camera_wb_custom", false)
+            p.cameraWbTemperatureAsShot = json.optBoolean("camera_wb_temperature_as_shot", false)
+            p.cameraWbTintAsShot = json.optBoolean("camera_wb_tint_as_shot", false)
             p.sceneLatitudeActive = json.optBoolean("scene_latitude_active", false)
             p.sceneLatitudeNorm = json.optString("scene_latitude_norm", "power")
             p.sceneLatitudeHighlightKnee = json.optDouble("scene_latitude_highlight_knee", 2.0).toFloat()

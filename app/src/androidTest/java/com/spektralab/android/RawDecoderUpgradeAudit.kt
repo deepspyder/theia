@@ -124,7 +124,8 @@ internal class RawDecoderUpgradeAudit(private val test: Instrumentation, private
                 engine.openRaw(raw, params.openJson(raw.width, raw.height, "sRGB", "ProPhoto RGB"))
             }
             val renderStart = SystemClock.elapsedRealtime()
-            engine.renderForExport().use { image ->
+            // Exercise the current bounded export path at full size, like the application.
+            engine.renderExportOnce().use { image ->
                 check(image.width == 6064 && image.height == 4040)
                 report.put("full_render_ms", SystemClock.elapsedRealtime() - renderStart)
                 report.put("pss_after_render_kb", Debug.getPss())

@@ -156,7 +156,12 @@ internal class EditHistoryRepository(private val db: SQLiteDatabase, private val
 
         /** UI defaults normalize old partial sidecars; automatic film lettering is not an edit. */
         internal fun fingerprint(json: String): String = CanonicalJson.fingerprint(CanonicalJson.encode(
-            EditorParams.fromJson(JSONObject(json)).toJson().apply { remove("overscan_edge_text") },
+            EditorParams.fromJson(JSONObject(json)).toJson().apply {
+                remove("overscan_edge_text")
+                // R04's new neutral defaults must not invalidate existing R03 digests.
+                for (key in listOf("camera_wb_temperature_as_shot", "camera_wb_tint_as_shot"))
+                    if (!getBoolean(key)) remove(key)
+            },
         ))
 
         private fun encode(json: String): ByteArray {

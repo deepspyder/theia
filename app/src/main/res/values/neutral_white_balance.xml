@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neutral_pick_decode">RAW 灰点吸管</string>
+    <string name="neutral_pick_print">成片灰点吸管</string>
+    <string name="neutral_decode_stage">RAW 解码 · 镜头校正与裁剪前</string>
+    <string name="neutral_print_stage">胶片成片 · 调色前</string>
+    <string name="neutral_instruction">点按应为中性灰的区域，避开深黑、过曝和片边；确认后应用。</string>
+    <string name="neutral_loading">正在准备采样图像…</string>
+    <string name="neutral_cancel">取消采样</string>
+    <string name="neutral_apply">应用白平衡</string>
+    <string name="neutral_center">在中心采样</string>
+    <string name="neutral_photo">白平衡采样图像</string>
+    <string name="neutral_no_selection">尚未选择采样点</string>
+    <string name="neutral_decode_result">色温 %1$.0f K · 色调 %2$+.1f</string>
+    <string name="neutral_print_result">暖冷 %1$+.2f · 色调 %2$+.2f</string>
+    <string name="neutral_limited">已达到调节范围，将尽量接近中性灰。</string>
+    <string name="neutral_patch_error">此处过暗、过曝或超出白平衡范围，请选择另一处灰色区域。</string>
+    <string name="neutral_source_error">无法准备此阶段的图像，请取消后重新打开照片再试。</string>
+    <string name="neutral_source_changed">照片或编辑已变化，请取消后重新采样。</string>
+    <string name="neutral_raw_temperature_shot">温度沿用拍摄值</string>
+    <string name="neutral_raw_tint_shot">色调沿用拍摄值</string>
+    <string name="neutral_shot_value">拍摄值：%1$.0f K · 色调 %2$+.1f</string>
+    <string name="neutral_shot_unavailable">此原片无法换算拍摄色温与色调；可保留拍摄白平衡或使用完整自定义值。</string>
+    <string name="neutral_raw_presets">白平衡预设</string>
+    <string name="neutral_preset_daylight">日光</string>
+    <string name="neutral_preset_cloudy">多云</string>
+    <string name="neutral_preset_shade">阴影</string>
+    <string name="neutral_preset_tungsten">钨丝灯</string>
+    <string name="neutral_preset_fluorescent">荧光灯</string>
+    <string name="neutral_preset_flash">闪光灯</string>
+    <string name="neutral_preset_shot">拍摄白平衡</string>
+</resources>

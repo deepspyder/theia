@@ -414,6 +414,7 @@ internal fun EditorScreen(
     }
 
     // ---- 保存配方对话框 ----
+    NeutralPickView(vm.neutralPick)
     if (showSaveRecipeDialog) {
         AlertDialog(
             onDismissRequest = { showSaveRecipeDialog = false },

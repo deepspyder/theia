@@ -17,6 +17,7 @@ import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.spektralab.android.core.color.DisplayP3Icc
+import com.spektralab.android.core.color.NeutralWhiteBalance
 import com.spektralab.android.core.develop.SmartDevelop
 import com.spektralab.android.core.develop.SmartDevelopStyle
 import com.spektralab.android.core.model.EditSnapshot
@@ -102,6 +103,43 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     private val app get() = getApplication<Application>()
+    internal val neutralPick by lazy { NeutralPickController(app, viewModelScope) }
+    internal val canPickNeutral: Boolean get() = hasPhoto && lastResult != null && !busy && !isCropping &&
+        !isExporting && !isBatchExporting && !isApplyingEdits && !previewWorkRunning && renderTaskState.active == null
+    internal var cameraAsShot by mutableStateOf<CameraWhiteBalance.Balance?>(null)
+        private set
+
+    internal fun beginNeutralPick(target: NeutralWhiteBalance.Target) {
+        if (!canPickNeutral || target == NeutralWhiteBalance.Target.DECODE && (!currentIsRaw || currentUri == null)) return
+        finishCurveEdit(cancel = true); finishColorEdit(cancel = true); finishMixerEdit(cancel = true); finishWheelEdit(cancel = true)
+        val uri = currentUri
+        val photo = photoGeneration
+        val frame = lastResult
+        val edit = EditSnapshot.capture(params)
+        neutralPick.open(target, uri, edit, frame, resultColorSpace, isCurrent = {
+            !cleared && uri == currentUri && photo == photoGeneration && edit.fingerprint == EditSnapshot.capture(params).fingerprint &&
+                (target == NeutralWhiteBalance.Target.DECODE || frame === lastResult)
+        }) { balance ->
+            lastHistoryKey = null
+            if (target == NeutralWhiteBalance.Target.DECODE) {
+                params.cameraWbCustom = true
+                params.cameraWbTemperatureAsShot = false; params.cameraWbTintAsShot = false
+                params.cameraWbKelvin = balance.temperature.toFloat(); params.cameraWbTint = balance.tint.toFloat()
+                scheduleCameraWb()
+            } else {
+                params.temperature = balance.temperature.toFloat(); params.tint = balance.tint.toFloat()
+                scheduleGrade()
+            }
+        }
+    }
+
+    internal fun applyRawWhiteBalancePreset(kelvin: Float, tint: Float) {
+        if (!currentIsRaw || !hasPhoto || busy || isExporting || isBatchExporting) return
+        lastHistoryKey = null
+        params.cameraWbCustom = true; params.cameraWbTemperatureAsShot = false; params.cameraWbTintAsShot = false
+        params.cameraWbKelvin = kelvin; params.cameraWbTint = tint
+        scheduleCameraWb()
+    }
 
     internal val savedPhotos by lazy { com.spektralab.android.feature.gallery.SavedPhotosController(app, viewModelScope) }
     internal val lightTableProjects by lazy { com.spektralab.android.feature.lighttable.LightTableProjectsController(app, viewModelScope) }
@@ -567,12 +605,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         lastHistoryKey = null
         suppressHistory = true
         if (currentIsRaw && currentUri != null &&
-            (previous.cameraWbCustom != params.cameraWbCustom || previous.cameraWbKelvin != params.cameraWbKelvin || previous.cameraWbTint != params.cameraWbTint)) {
+            (previous.cameraWbCustom != params.cameraWbCustom || previous.cameraWbKelvin != params.cameraWbKelvin || previous.cameraWbTint != params.cameraWbTint ||
+                previous.cameraWbTemperatureAsShot != params.cameraWbTemperatureAsShot || previous.cameraWbTintAsShot != params.cameraWbTintAsShot)) {
             scheduleCameraWb()
         }
         if (previous.deltaJson(previewW, previewH) == params.deltaJson(previewW, previewH) &&
             previous.cameraWbCustom == params.cameraWbCustom && previous.cameraWbKelvin == params.cameraWbKelvin &&
-            previous.cameraWbTint == params.cameraWbTint) scheduleGrade()
+            previous.cameraWbTint == params.cameraWbTint && previous.cameraWbTemperatureAsShot == params.cameraWbTemperatureAsShot &&
+            previous.cameraWbTintAsShot == params.cameraWbTintAsShot) scheduleGrade()
         else scheduleRender()
         suppressHistory = false
     }
@@ -678,7 +718,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     suppressHistory = true
                     try {
                         val cameraChanged = previous.cameraWbCustom != params.cameraWbCustom ||
-                            previous.cameraWbKelvin != params.cameraWbKelvin || previous.cameraWbTint != params.cameraWbTint
+                            previous.cameraWbKelvin != params.cameraWbKelvin || previous.cameraWbTint != params.cameraWbTint ||
+                            previous.cameraWbTemperatureAsShot != params.cameraWbTemperatureAsShot || previous.cameraWbTintAsShot != params.cameraWbTintAsShot
                         when {
                             currentIsRaw && cameraChanged -> scheduleCameraWb()
                             previous.deltaJson(previewW, previewH) == params.deltaJson(previewW, previewH) -> scheduleGrade(commit = false)
@@ -1129,7 +1170,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 if (photo != photoGeneration) return@onEngine
                 try {
                     decodeRawAndOpen(uri, photo, editParams)
-                    append("RAW 白平衡: ${if (params.cameraWbCustom) "${params.cameraWbKelvin.toInt()}K / tint ${params.cameraWbTint.toInt()}" else "as-shot"}")
+                    val temperature = if (editParams.cameraWbTemperatureAsShot) "as-shot" else "${editParams.cameraWbKelvin.toInt()}K"
+                    val tint = if (editParams.cameraWbTintAsShot) "as-shot" else editParams.cameraWbTint.toInt().toString()
+                    append("RAW 白平衡: ${if (editParams.cameraWbCustom) "$temperature / tint $tint" else "as-shot"}")
                 } catch (ex: CancellationException) {
                     throw ex
                 } catch (ex: Exception) {
@@ -1143,7 +1186,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // 恢复 as-shot 白平衡。
     fun resetCameraWb() {
+        lastHistoryKey = null
         params.cameraWbCustom = false
+        params.cameraWbTemperatureAsShot = false
+        params.cameraWbTintAsShot = false
         scheduleCameraWb()
     }
 
@@ -1181,17 +1227,16 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val correctLens = lensCorrectionActive
         val task = currentCoroutineContext()
         val cancellation = RawDecodeCancellation { cleared || photo != photoGeneration || !task.isActive }
-        val headerXyz = cachedXyz ?: if (editParams.cameraWbCustom) {
+        val info = if (editParams.cameraWbCustom && (editParams.cameraWbTemperatureAsShot || editParams.cameraWbTintAsShot))
+            RawDecoder.readCameraInfo(app, uri, cancellation) else null
+        val headerXyz = cachedXyz ?: info?.copyOfRange(0, 9) ?: if (editParams.cameraWbCustom) {
             RawDecoder.readCameraMatrix(app, uri, cancellation)
         } else null
         val initial = if (headerXyz == null) {
             RawDecoder.decode(app, uri, halfSize = halfSize, cancellation = cancellation)
         } else null
         val cameraXyz = headerXyz ?: initial!!.camXyz
-        val userMul = if (editParams.cameraWbCustom) {
-            val mul = FloatArray(4)
-            if (CameraWhiteBalance.multipliersFor(cameraXyz, editParams.cameraWbKelvin.toDouble(), editParams.cameraWbTint.toDouble(), mul)) mul else null
-        } else null
+        val userMul = CameraWhiteBalance.resolve(editParams, cameraXyz, info?.copyOfRange(9, 13) ?: initial?.camMul)
         val raw = if (userMul != null) {
             RawDecoder.decode(app, uri, halfSize = halfSize, userMul = userMul, cancellation = cancellation)
         } else initial ?: RawDecoder.decode(app, uri, halfSize = halfSize, cancellation = cancellation)
@@ -1200,6 +1245,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         withContext(Dispatchers.Main.immediate) {
             if (uri == currentUri && photo == photoGeneration) {
                 rawCamXyz = raw.camXyz
+                cameraAsShot = CameraWhiteBalance.asShot(raw.camXyz, raw.camMul)
                 matchedLensProfile = lensProfile
                 matchedLens = lensProfile?.model
             }
@@ -1218,14 +1264,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         e.closeSession()
         if (RawDecoder.isRaw(app, uri, queryDisplayName(uri))) {
             val cancellation = RawDecodeCancellation { cleared || exportCancelRequested }
-            val cachedXyz = (if (uri == currentUri) rawCamXyz else null) ?: if (editParams.cameraWbCustom) {
+            val info = if (editParams.cameraWbCustom && (editParams.cameraWbTemperatureAsShot || editParams.cameraWbTintAsShot))
+                RawDecoder.readCameraInfo(app, uri, cancellation) else null
+            val cachedXyz = (if (uri == currentUri) rawCamXyz else null) ?: info?.copyOfRange(0, 9) ?: if (editParams.cameraWbCustom) {
                 RawDecoder.readCameraMatrix(app, uri, cancellation)
             } else null
             fun multipliers(xyz: FloatArray?): FloatArray? {
                 if (!editParams.cameraWbCustom || xyz == null) return null
-                val mul = FloatArray(4)
-                return if (CameraWhiteBalance.multipliersFor(xyz, editParams.cameraWbKelvin.toDouble(),
-                    editParams.cameraWbTint.toDouble(), mul)) mul else null
+                return CameraWhiteBalance.resolve(editParams, xyz, info?.copyOfRange(9, 13))
             }
             var raw = measureExport("raw_decode") {
                 RawDecoder.decodeForExport(app, uri, size, multipliers(cachedXyz), cancellation)
@@ -1858,6 +1904,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Invalidate before changing identity; cancellation alone cannot stop synchronous native work. */
     private fun invalidatePhotoWork(): Long {
+        neutralPick.close()
+        cameraAsShot = null
         wheelStart?.let {
             params.colorWheels = it
             params.unreadableColorWheels = wheelStartUnreadable
@@ -2795,6 +2843,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
+        neutralPick.close()
         smartQueueJob?.cancel();smartApplyJob?.cancel()
         cleared = true
         invalidatePhotoWork()

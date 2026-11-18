@@ -6,6 +6,7 @@
 #include <functional>
 #include <string>
 #include <utility>
+#include <array>
 
 namespace theia::raw {
 
@@ -13,6 +14,7 @@ namespace theia::raw {
 // its three-pass arithmetic/order, with cancellation at each tile on this thread.
 class Decoder final : public LibRaw {
 public:
+    std::array<float, 12> output_matrix{};
     explicit Decoder(std::function<bool()> cancelled = {})
         : LibRaw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK), cancelled_(std::move(cancelled)) {}
 
@@ -29,6 +31,12 @@ public:
     }
 
 protected:
+    void convert_to_rgb_loop(float out_cam[3][4]) override {
+        for (int row = 0; row < 3; ++row)
+            for (int column = 0; column < 4; ++column)
+                output_matrix[row * 4 + column] = out_cam[row][column];
+        LibRaw::convert_to_rgb_loop(out_cam);
+    }
     int nikonhe_decode_loop1(int tiles, int height, const void* data, void* decoder) override {
         for (int tile = 0; tile < tiles; ++tile) {
             checkRequested();

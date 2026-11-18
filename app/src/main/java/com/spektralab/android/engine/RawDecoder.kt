@@ -34,6 +34,8 @@ object RawDecoder {
     private external fun nativeDecodeForExport(path: String, maxLongEdge: Int, userMul: FloatArray?,
                                                cancellation: RawDecodeCancellation?): NativeRawImage
     private external fun nativeReadCameraMatrix(path: String): FloatArray?
+    private external fun nativeReadCameraInfo(path: String): FloatArray?
+    private external fun nativeDecodeNeutral(path: String, userMul: FloatArray?, cancellation: RawDecodeCancellation?): RawNeutralPreview
     private external fun nativeCameraPreview(path: String, cancellation: RawDecodeCancellation?): ByteArray?
     private external fun nativeDisplayPreview(path: String, maxLongEdge: Int, cancellation: RawDecodeCancellation?): android.graphics.Bitmap?
 
@@ -116,6 +118,12 @@ object RawDecoder {
     /** Header metadata is enough to choose custom white balance before demosaicing. */
     fun readCameraMatrix(context: Context, uri: Uri, cancellation: RawDecodeCancellation? = null): FloatArray? =
         withRawInput(context, uri, "raw_input_", cancellation, ::nativeReadCameraMatrix)
+
+    internal fun readCameraInfo(context: Context, uri: Uri, cancellation: RawDecodeCancellation? = null): FloatArray? =
+        withRawInput(context, uri, "raw_input_", cancellation, ::nativeReadCameraInfo)
+
+    internal fun neutralPreview(context: Context, uri: Uri, userMul: FloatArray?, cancellation: RawDecodeCancellation?): RawNeutralPreview =
+        withRawInput(context, uri, "raw_input_", cancellation) { nativeDecodeNeutral(it, userMul, cancellation) }
 
     /** Camera-rendered JPEG only. It is an original-view reference, never an engine input. */
     internal fun cameraPreview(context: Context, uri: Uri, cancellation: RawDecodeCancellation?): ByteArray? =

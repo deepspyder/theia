@@ -1,7 +1,8 @@
 {
   "date": "2026-11-18",
-  "batch": "R03持久撤销/重做已实现：schema6增量迁移、稳定编辑ID、压缩步骤/cursor/generation及当前编辑同事务；分支裁剪/连续输入合并、256状态/8MiB上限与错误回退接通。真实跨进程红绿、四处WAL进程终止、SQLITE_FULL与回滚、旧版本/副本/重定位、重启前后完整预览和三格式原尺寸文件摘要通过；总入口207/207。本批无新界面、JNI或材料改变，下一项R04白平衡吸管。",
+  "batch": "R04灰点白平衡吸管已实现：RAW解码源图与成片调色前独立采样、7×7有效邻域、浮点/U16精度、明确取消/应用；独立温度/tint拍摄值轴及常见光源预设，旧自定义/预设/历史摘要兼容。25组235条执行记录、207/207总回归、4配置28张原生截图通过；底部导航遮挡修复已复核。下一项R05设置、缓存与诊断入口。",
   "validation": [
+    "2026-11-18 R04：122组独立有效灰点/相机数学样本、两份真实NEF反解与四轴8次引擎U16逐值对照通过；10份RAW默认/自定义预览及有界导出与R03逐值相同。JPEG/EXIF6/PNG/WebP触点/裁剪旋转、取消/源变化、独立混合轴与虚拟副本批量、6064×4040三格式、实际重启undo/redo通过；总入口207/207，25组235条记录。4配置28截图、导航问题定点复核ship；Debug/AndroidTest/Release/Lint零Error、既有74warning/21hint、14工具测试通过。199资产保持，仅新增RAW标定/JNI改变两ABI主SO；原签名/16KiB对齐通过，Release58545840字节/6a02a931cdf5d7017d40421630ff2462eaeb13918c5a89a41377c43ca1d04ffd。单次顺序原尺寸JPEG18.081s、PNG4.768s、TIFF0.753s，未独立记录缓存计数/交错冷热，不代表编码比较或手机性能。详见docs/features/r04-neutral-white-balance.md及.tmp/r04-neutral/verification.json。",
     "R03最终17组235条执行记录（含重复）、总入口207/207与四处真实kill/WAL恢复通过；完整预览和三格式原尺寸SHA跨重启相同。最终包58496323字节/da4c59eb0e2a3aae15708d208ad3477bc5920b4030c1678f952103edd34b9b67，原签名/双ABI/16KiB与205项原生运行资源保持；Lint零Error，现存74warning/21hint的Kotlin位置均在基线源码行上，未屏蔽检查。原先失败、SQLite满盘夹具和工具栏入口等待修正记录保留。",
     "2026-11-18 R03：旧R02真实重启丢失undo/redo已复现；新三阶段重启/新分支、真实工具栏点击、RGBA16预览与JPEG/PNG/TIFF原尺寸SHA跨重启完全相同。四断点killProcess/WAL回滚、已提交undo恢复，真实SQLITE_FULL、批量/裁剪回收回滚、schema5→6/未知字段/未来与损坏保留、256状态/8MiB配额通过。100次连续调色合为一步，模拟器主提交中位6.874ms/P95 19.373ms，非60fps承诺。总入口207/207，Debug/AndroidTest/Release/Lint零Error、14工具测试和分包检查通过；205项原生/运行资源保持。见docs/features/r03-persistent-history.md及.tmp/r03-history/verification.json，仅API37 x86_64。",
     "R02补充完整应用总入口207/207及独立系统选图UI12/12通过。首轮206/207误选自身刚输出的DI TIFF，现改用测试自建JPEG并断言新URI、317×211实际解码和渲染；失败JSON/logcat/截图保留。普通非DNG TIFF/DI TIFF回导仍未接通，已明确列后续，不冒称修好。最终12专项/总入口组229条执行记录（含重复），另57独立图像与24原生截图；原证书V1/V2/V3和16KiB APK对齐通过。",
@@ -406,7 +407,8 @@
         "后续修复：中性标志预计算、最新后期/sidecar顺序与私有待转换底图；独立曲线工作区，26组/178条及3种配置通过，原全尺寸输出哈希不变",
         "2026-11-12 52 后期场景和穷举 Float 对照通过；中性量化/亮度精确缓存、常量提升与连续拖动完成，本批全尺寸 RAW 哈希不变",
         "2026-11-12 曲线大图工作区、固定工具坞、精调不缩图、辅助点直接拖动和跨大图保留通道/选点；最终9组回归、3种屏幕配置通过，24MP曲线TIFF哈希保持。",
-        "2026-11-12边界复查：曲线/HSL未完成手势从保存和历史中排除；取消、撤销/重做、重新打开及正常提交均通过，原画质/参数计时回归保持。"
+        "2026-11-12边界复查：曲线/HSL未完成手势从保存和历史中排除；取消、撤销/重做、重新打开及正常提交均通过，原画质/参数计时回归保持。",
+        "R04新增成片灰点吸管和RAW解码阶段吸管，float/U16采样、Fit/EXIF/裁剪旋转阶段隔离、取消/应用与历史/实际导出通过；独立拍摄值轴和光源预设接入。详见r04-neutral-white-balance.md，仅模拟器验收。"
       ],
       "remaining": [
         "真机持续交互/颜色/性能验收；超宽图条带支持边界专项。功能开发已齐，不能以模拟器结果替代这些验收。"
@@ -419,7 +421,13 @@
         "app/src/main/java/com/spektralab/android/core/color/ColorAdjustments.kt",
         "app/src/main/java/com/spektralab/android/feature/editor/ui/panels/ColorEditor.kt",
         "app/src/androidTest/java/com/spektralab/android/ColorAudit.kt",
-        "app/src/androidTest/java/com/spektralab/android/ScalarGradeReference.kt"
+        "app/src/androidTest/java/com/spektralab/android/ScalarGradeReference.kt",
+        "app/src/main/java/com/spektralab/android/core/color/NeutralWhiteBalance.kt",
+        "app/src/main/java/com/spektralab/android/feature/editor/NeutralPickController.kt",
+        "app/src/main/java/com/spektralab/android/feature/editor/ui/NeutralPickView.kt",
+        "app/src/androidTest/java/com/spektralab/android/NeutralBalanceMathAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/NeutralPickAudit.kt",
+        "docs/features/r04-neutral-white-balance.md"
       ]
     },
     {
@@ -483,7 +491,8 @@
         "第五批图库批量移除：DBv5可见性元数据、选择/长按/跨页全选/确认/安全移除/重新导入恢复完成。130条隔离存储与66条UI、4配置及独立限定范围复核通过；不删除手机原片、编辑版本、相册归属或工作台。",
         "2026-11-14图库批量整理：新增多选批量加入用户相册，事务写入成员关系并保留原片和编辑；三张照片批量加入回归通过。加入观景台临时工作台与已保存观景台项目入口已接入。",
         "R01 RAW读取同fd恢复、分段资产精确边界、取消与错误不盲重试已实现；真实跨UID fd自然失败的红绿记录及21合同、原预览/导出对照通过。小米15Ultra原失败DNG与真机待验，非全图库验收。",
-        "R03正式持久历史接线完成：与当前编辑同SQLite事务、stable variant/version ID、cursor/generation、合并/分支/配额、批量保存、智能初始建议和失败回退；跨真实进程、故障/满盘、版本隔离/原图重定位、完整图像及三格式原尺寸SHA与207总回归通过。原工具栏不变，不含历史浏览/清理页或真机持续性能验收。"
+        "R03正式持久历史接线完成：与当前编辑同SQLite事务、stable variant/version ID、cursor/generation、合并/分支/配额、批量保存、智能初始建议和失败回退；跨真实进程、故障/满盘、版本隔离/原图重定位、完整图像及三格式原尺寸SHA与207总回归通过。原工具栏不变，不含历史浏览/清理页或真机持续性能验收。",
+        "R04两轴拍摄值/RAW预设与灰点测量已接sidecar、复制、虚拟副本、批量和持久历史。旧R03摘要兼容、实际跨进程WB redo分支恢复通过；未扩大为图库全功能验收。"
       ],
       "remaining": [
         "R03持久撤销/重做已完成本批模拟器验收；历史浏览/任意跳步/清理界面和整体数据库空间管理未包含。ARM真机版本操作、触感与系统恢复仍待；正式多版本默认/指定会话恢复与菜单已有实现。",
@@ -528,7 +537,10 @@
         "app/src/androidTest/java/com/spektralab/android/PersistentHistoryStorageAudit.kt",
         "app/src/androidTest/java/com/spektralab/android/PersistentHistoryCrashAudit.kt",
         "app/src/androidTest/java/com/spektralab/android/PersistentHistoryEditorAudit.kt",
-        "docs/features/r03-persistent-history.md"
+        "docs/features/r03-persistent-history.md",
+        "app/src/main/java/com/spektralab/android/engine/CameraWhiteBalance.kt",
+        "app/src/androidTest/java/com/spektralab/android/RawNeutralAudit.kt",
+        "docs/features/r04-neutral-white-balance.md"
       ]
     },
     {
@@ -708,7 +720,8 @@
       "status": "in_progress",
       "evidence": [
         "新编辑工具、照片图库、整理、版本及项目管理已使用默认values/strings.xml资源；新界面通过stringResource/getString引用。仅完成部分资源化基础，未实现四语言。",
-        "R02新增尺寸/命名/配方文案全部在values/export_options.xml，四配置真实界面通过；未将此视为四语言翻译完成。"
+        "R02新增尺寸/命名/配方文案全部在values/export_options.xml，四配置真实界面通过；未将此视为四语言翻译完成。",
+        "R04新增吸管/预设/拍摄值轴的文案位于neutral_white_balance.xml；4配置大字体/横屏和错误状态通过，尚未完成四语言翻译。"
       ],
       "remaining": [
         "旧页面硬编码文案逐页迁移；补齐四语言资源与切换/回退、长文本和排版验收；新增文案持续资源化。",
@@ -719,7 +732,8 @@
         "app/src/main/java/com/spektralab/android/feature/gallery/EditVersionsSheet.kt",
         "app/src/main/java/com/spektralab/android/feature/gallery/EditVersionsController.kt",
         "docs/compatibility/pc-cinestill-parity.md",
-        "app/src/main/res/values/export_options.xml"
+        "app/src/main/res/values/export_options.xml",
+        "app/src/main/res/values/neutral_white_balance.xml"
       ]
     },
     {

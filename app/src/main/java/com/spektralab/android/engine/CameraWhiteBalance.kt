@@ -1,6 +1,8 @@
 package com.spektralab.android.engine
 
 import kotlin.math.sqrt
+import kotlin.math.abs
+import com.spektralab.android.core.model.EditorParams
 
 /**
  * 相机白平衡（Adobe DNG 的温度/色调定义）：Kelvin + tint → 相机乘数。
@@ -10,6 +12,7 @@ import kotlin.math.sqrt
  * 乘数 = 相机 cam_xyz 矩阵作用于该光源的 XYZ 后的倒数。
  */
 object CameraWhiteBalance {
+    data class Balance(val temperature: Double, val tint: Double)
 
     private data class Ruvt(val r: Double, val u: Double, val v: Double, val t: Double)
 
@@ -63,6 +66,7 @@ object CameraWhiteBalance {
      * 无法中性化（该相机不支持这个光源）时返回 false。
      */
     fun multipliersFor(camXyz: FloatArray, temperature: Double, tint: Double, out: FloatArray): Boolean {
+        if (camXyz.size != 9 || out.size < 4 || !temperature.isFinite() || !tint.isFinite() || camXyz.any { !it.isFinite() }) return false
         val xy = DoubleArray(2)
         temperatureTintToXy(temperature, tint, xy)
         val xyz = doubleArrayOf(xy[0] / xy[1], 1.0, (1.0 - xy[0] - xy[1]) / xy[1])
@@ -76,5 +80,104 @@ object CameraWhiteBalance {
         out[2] = (n[1] / n[2]).toFloat()
         out[3] = 1f
         return true
+    }
+
+    /** Inverse of the existing Robertson table, same definition as desktop white_balance.cpp. */
+    internal fun fromXy(x: Double, y: Double): Balance? {
+        if (!x.isFinite() || !y.isFinite() || y <= 0 || x < 0 || x + y >= 1) return null
+        val denominator = 1.5 - x + 6 * y
+        val u = 2 * x / denominator
+        val v = 3 * y / denominator
+        var lastDistance = 0.0
+        var lastU = 0.0
+        var lastV = 0.0
+        for (i in 1..30) {
+            var du = 1.0 / sqrt(1 + table[i].t * table[i].t)
+            var dv = table[i].t * du
+            val distance = -(u - table[i].u) * dv + (v - table[i].v) * du
+            if (distance <= 0 || i == 30) {
+                val positive = -minOf(distance, 0.0)
+                val f = if (i == 1) 0.0 else positive / (lastDistance + positive)
+                val mired = table[i - 1].r * f + table[i].r * (1 - f)
+                val deltaU = u - (table[i - 1].u * f + table[i].u * (1 - f))
+                val deltaV = v - (table[i - 1].v * f + table[i].v * (1 - f))
+                du = du * (1 - f) + lastU * f
+                dv = dv * (1 - f) + lastV * f
+                val length = sqrt(du * du + dv * dv)
+                val temperature = 1e6 / mired
+                val tint = (deltaU * du + deltaV * dv) / length * TINT_SCALE
+                return if (temperature.isFinite() && tint.isFinite()) Balance(temperature, tint) else null
+            }
+            lastDistance = distance
+            lastU = du
+            lastV = dv
+        }
+        return null
+    }
+
+    internal fun asShot(cameraXyz: FloatArray, multipliers: FloatArray): Balance? {
+        if (multipliers.size < 3 || multipliers.take(3).any { !it.isFinite() || it <= 0 }) return null
+        val inverse = inverse(cameraXyz.map(Float::toDouble).toDoubleArray()) ?: return null
+        // Do not offer an independent as-shot axis if the forward conversion would clamp it.
+        return fromCamera(inverse, DoubleArray(3) { 1.0 / multipliers[it] })
+            ?.takeIf { it.temperature in 1700.0..50000.0 && it.tint in -150.0..150.0 }
+    }
+
+    internal fun neutral(rgb: DoubleArray, calibration: FloatArray, cameraXyz: FloatArray): Balance? {
+        if (rgb.size != 3 || calibration.size != 13 || calibration[12] != 3f || rgb.any { !it.isFinite() || it <= .0001 || it >= .995 }) return null
+        val output = inverse(DoubleArray(9) { calibration[it].toDouble() }) ?: return null
+        val camera = inverse(cameraXyz.map(Float::toDouble).toDoubleArray()) ?: return null
+        val neutral = DoubleArray(3)
+        for (row in 0..2) {
+            val value = (0..2).sumOf { output[row * 3 + it] * rgb[it] }
+            val applied = calibration[9 + row].toDouble()
+            if (!value.isFinite() || value <= .0001 || value >= .995 || !applied.isFinite() || applied <= 0) return null
+            neutral[row] = value / applied
+        }
+        return fromCamera(camera, neutral)?.takeIf { it.temperature in 2000.0..50000.0 && it.tint in -150.0..150.0 }
+    }
+
+    private fun fromCamera(inverse: DoubleArray, neutral: DoubleArray): Balance? {
+        val xyz = DoubleArray(3) { row -> (0..2).sumOf { inverse[row * 3 + it] * neutral[it] } }
+        val sum = xyz.sum()
+        return if (sum.isFinite() && sum > 0 && xyz[1] > 0) fromXy(xyz[0] / sum, xyz[1] / sum) else null
+    }
+
+    internal fun resolve(params: EditorParams, cameraXyz: FloatArray, shotMultipliers: FloatArray?): FloatArray? {
+        if (!params.cameraWbCustom || params.cameraWbTemperatureAsShot && params.cameraWbTintAsShot) return null
+        val shot = if (params.cameraWbTemperatureAsShot || params.cameraWbTintAsShot) {
+            asShot(cameraXyz, shotMultipliers ?: throw SpkException("RAW white balance: as-shot calibration unavailable"))
+                ?: throw SpkException("RAW white balance: as-shot calibration unavailable")
+        } else null
+        val t = if (params.cameraWbTemperatureAsShot) shot!!.temperature else params.cameraWbKelvin.toDouble()
+        val g = if (params.cameraWbTintAsShot) shot!!.tint else params.cameraWbTint.toDouble()
+        val values = FloatArray(4)
+        if (!multipliersFor(cameraXyz, t, g, values)) {
+            // Legacy custom edits used the native as-shot fallback for unsupported matrices.
+            if (!params.cameraWbTemperatureAsShot && !params.cameraWbTintAsShot) return null
+            throw SpkException("无法应用此拍摄白平衡轴，请恢复拍摄白平衡或使用完整自定义值")
+        }
+        return values
+    }
+
+    private fun inverse(matrix: DoubleArray): DoubleArray? {
+        if (matrix.size != 9 || matrix.any { !it.isFinite() }) return null
+        val a = matrix[0]
+        val b = matrix[1]
+        val c = matrix[2]
+        val d = matrix[3]
+        val e = matrix[4]
+        val f = matrix[5]
+        val g = matrix[6]
+        val h = matrix[7]
+        val i = matrix[8]
+        val determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+        if (!determinant.isFinite() || abs(determinant) < 1e-12) return null
+        return doubleArrayOf(
+            e * i - f * h, c * h - b * i, b * f - c * e,
+            f * g - d * i, a * i - c * g, c * d - a * f,
+            d * h - e * g, b * g - a * h, a * e - b * d,
+        )
+            .also { result -> for (index in result.indices) result[index] /= determinant }
     }
 }

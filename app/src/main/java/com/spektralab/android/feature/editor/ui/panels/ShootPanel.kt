@@ -64,9 +64,10 @@ internal fun ShootPanel(vm: EditorViewModel) {
         vm.matchedLens?.let { Text("已匹配镜头: $it", style = MaterialTheme.typography.bodySmall) }
             ?: Text("未找到镜头配置，保留原始画面", style = MaterialTheme.typography.bodySmall)
         ToggleRow("自定义白平衡", vm.params.cameraWbCustom) { vm.params.cameraWbCustom = it; vm.scheduleCameraWb() }
+        RawWhiteBalanceOptions(vm)
         if (vm.params.cameraWbCustom) {
-            SliderRow("色温 K", vm.params.cameraWbKelvin, 2000f..12000f, "%.0f K") { vm.params.cameraWbKelvin = it; vm.scheduleCameraWb() }
-            SliderRow("色调", vm.params.cameraWbTint, -150f..150f, "%+.0f") { vm.params.cameraWbTint = it; vm.scheduleCameraWb() }
+            if (!vm.params.cameraWbTemperatureAsShot) SliderRow("色温 K", vm.params.cameraWbKelvin, 2000f..50000f, "%.0f K") { vm.params.cameraWbKelvin = it; vm.scheduleCameraWb() }
+            if (!vm.params.cameraWbTintAsShot) SliderRow("色调", vm.params.cameraWbTint, -150f..150f, "%+.0f") { vm.params.cameraWbTint = it; vm.scheduleCameraWb() }
             ActionButton("恢复拍摄白平衡", onClick = { vm.resetCameraWb() })
         }
         }

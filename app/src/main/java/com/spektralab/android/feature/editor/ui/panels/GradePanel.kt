@@ -43,6 +43,7 @@ internal fun GradePanel(vm: EditorViewModel) {
         }
     }
     EditorSection("白平衡", "扫描白平衡 · 暖冷与色调", initiallyExpanded = true) {
+        NeutralPickButton(vm, com.spektralab.android.core.color.NeutralWhiteBalance.Target.PRINT)
         SliderRow("色温(暖/冷)", vm.params.temperature, -1f..1f, "%+.2f") { vm.params.temperature = it; vm.scheduleGrade() }
         SliderRow("色调(绿/品红)", vm.params.tint, -1f..1f, "%+.2f") { vm.params.tint = it; vm.scheduleGrade() }
     }

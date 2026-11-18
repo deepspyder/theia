@@ -16,14 +16,14 @@
 
 | 范围 | 安卓当前已有 | 可以继续实现的差距 | 参考源码（相对参考项目 `app/SpektraLab/`） |
 | --- | --- | --- | --- |
-| 输入与解码 | RAW/常见位图、相机 WB、自定义 WB、自动匹配镜头、原图对比 | provider 重开失败恢复、WB 吸管/独立 as-shot 轴、镜头手选/强度、场景曲线 | `Sources/Engine/LibRawDecode.swift`、`NeutralPick.swift`；`Features/Develop/DecodeSection.swift` |
+| 输入与解码 | RAW/常见位图、同fd兼容恢复、RAW/成片WB吸管、独立as-shot轴/预设、自动匹配镜头、原图对比 | 镜头手选/强度、场景曲线 | `Sources/Engine/LibRawDecode.swift`、`NeutralPick.swift`；`Features/Develop/DecodeSection.swift` |
 | 胶片与冲印 | 材料选择、CineStill/新版光晕、颗粒/扫描/相纸等现有流程 | 同一负片多冲印、contrast mask、胶片旁路；新材料只在实测资源齐备后加入 | `Sources/Model/FrameEdit.swift`、`Sources/Engine/PrintLayers.swift` |
 | 成片调色 | 五通道曲线、八色 HSL/自然饱和度、通道混合、色轮 | 局部蒙版/层、独立成片裁切、透视、水印；现有调色需继续真机颜色验收 | `Sources/Model/LocalLayers.swift`、`Geometry.swift`、`Watermark.swift` |
-| 图库与历史 | SQLite 图库、相册、评级色标、虚拟副本、源图重定位、命名编辑预设 | 跨重启编辑历史、批量评分色标、相册排序、长期授权/缺源交互 | `Sources/Services/SQLiteEditHistoryStore.swift`、`Sources/Mac/Library` |
+| 图库与历史 | SQLite 图库、相册、评级色标、虚拟副本、源图重定位、持久撤销/重做、命名编辑预设 | 历史浏览/跳步、批量评分色标、相册排序、长期授权/缺源交互 | `Sources/Services/SQLiteEditHistoryStore.swift`、`Sources/Mac/Library` |
 | 预览与细节 | 快速/高质量预览、软打样入口、按住原图比较 | 真正原尺寸细节瓦片、准确色彩显示/软打样、缓存/过期任务完整化 | `Sources/Engine/FullDetail.swift`、`FullRenderJobs.swift`、`GamutProof.swift` |
 | 双源创作 | 单源 `135_half` 片边格式、灯台自由拼图 | 两源半格项目、胶片前双重曝光；三者数据语义不同 | `Sources/Model/HalfFramePair.swift`、`DoubleExposure.swift`；`Sources/Engine/PairDevelop.swift`、`DoubleDevelop.swift` |
 | 片边/日期/灯台 | 10 种静态片边、日期、持久自由灯台、物理布局、海报/印样/透明 PNG | 全宽齿孔与电影画幅、灯台更高像素/分带输出；保留自由画布 | `Sources/FilmEdge`、`Sources/Model/FilmEdge.swift` |
-| 输出与任务 | JPEG/PNG/TIFF16，4 档尺寸，TIFF sRGB/P3、独立 render host/前台执行、发布恢复日志 | 自定尺寸/MP、名称模板、输出配方管理、Adobe RGB/ProPhoto/HEIF、持久安全重试 | `Sources/Model/ExportRecipe.swift`、`Sources/Features/Export/ExportNaming.swift` |
+| 输出与任务 | JPEG/PNG/TIFF16，4档/自定长短边与MP、名称模板/配方管理、TIFF sRGB/P3、独立render host/前台执行、发布恢复日志 | Adobe RGB/ProPhoto/HEIF、持久安全重试 | `Sources/Model/ExportRecipe.swift`、`Sources/Features/Export/ExportNaming.swift` |
 | 设置与平台能力 | 部分中文资源化、错误/性能审计基础 | 设置页/诊断导出/缓存管理、4 语言、能力检测、HDR、可选外部目录/自动化 | `Sources/Services/AppSettings.swift`、`Sources/Diagnostics`、`Sources/Engine/HDR*` |
 
 这里“已有”指有真实产品链路和既往记录，不代表 F01–F20 每个大工作包都已完成全部边界。特别是 TIFF16、CineStill、图库版本、曲线/HSL/色轮、持久灯台不能再列为未开发。
@@ -39,7 +39,7 @@ R02完整回归新发现：普通非DNG TIFF成片/DI TIFF的回导解码尚未�
 - [x] **R01 RAW 内容源兼容恢复**（P0；F07/F16；2026-11-18 输入访问合同与模拟器验收完成）。完整常规 fd 保留直读；仅原生 open/metadata IO 错误，使用同一授权 fd 一次暂存恢复；支持带偏移/长度的内容资产。取消、损坏 RAW、可选 JPEG 不存在不触发盲目重试。验收：真实 DNG 预览/导出/相机矩阵逐值相同、provider 只开一次、分段边界/截断/失败/取消无暂存泄漏。小米15Ultra原失败 DNG 和实机复测单列待验，不能从模拟器推出已修好该文件。
 - [x] **R02 自定导出尺寸、名称与配方管理**（P1；F15/F16；依赖 R01）。先加长边/短边/MP、合法范围及“不放大”明确行为，再接名称 token（原名/胶片/相纸/日期）、重名去重、配方重命名/删除。尺寸计算包含旋转/两级裁切/片边，单张批量共用。验收：四种现有尺寸结果保持；极端宽高比/奇数边、非法输入、同名、取消、三容器实际头尺寸与配置一致；不暗中缩图。
 - [x] **R03 持久撤销/重做历史**（P1；F07；依赖 R01）。独立 revision/cursor/标签/来源/时间存储，接编辑提交事务；不把虚拟副本误当历史。明确上限/合并手势、保存点、撤销后新编辑分支、原子回收。验收：杀进程/重开、连续拖动、旧版本迁移、未知字段、同源不同副本、源重定位与满盘回滚；历史游标和输出一致。
-- [ ] **R04 灰点白平衡吸管**（P1；F04/F07；依赖 R03）。分开定义 Decode WB 和成片 WB，先独立数学与采样，再接图像触点/预览坐标；界面显示采样阶段与取消。补温度/tint 各自 as-shot 轴和预设。验收：中性灰/极暗/过曝/饱和/RAW与JPEG、EXIF/裁剪旋转、历史和批量输出；不能靠屏幕截图取色。
+- [x] **R04 灰点白平衡吸管**（P1；F04/F07；依赖 R03）。分开定义 Decode WB 和成片 WB，先独立数学与采样，再接图像触点/预览坐标；界面显示采样阶段与取消。补温度/tint 各自 as-shot 轴和预设。验收：中性灰/极暗/过曝/饱和/RAW与JPEG、EXIF/裁剪旋转、历史和批量输出；不能靠屏幕截图取色。2026-11-18模拟器完成：25组235条执行记录、207/207总回归、4配置28张截图；独立float/U16/旧RAW逐值对照、6064×4040三格式与副本批量、真实重启历史通过。实现范围与性能/真机限制见[r04-neutral-white-balance.md](features/r04-neutral-white-balance.md)。
 - [ ] **R05 设置、缓存与诊断入口**（P1；F02/F17；依赖 R01）。预览预算、缓存统计/安全清理、默认胶片/相纸、诊断包手动导出。按最小信息导出，URI/路径等私密数据默认脱敏；不自动上传。验收：有活动租约时不删缓存、不删原图/项目/编辑，设置迁移、取消/低存储和横竖屏。
 
 ### 第二阶段：几何、色彩和输出完成度

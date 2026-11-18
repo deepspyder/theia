@@ -137,6 +137,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        neutralMode = audit?.takeIf { it in setOf("neutral-math", "neutral-raw", "neutral-boundaries", "neutral-editor", "neutral-layout", "neutral-process") }
         historyEditorOnly = audit == "history-editor"
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
         historyStorageOnly = audit == "history-storage"
@@ -282,10 +283,24 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var historyProcessPhase: String? = null
     private var historyStorageOnly = false
     private var historyEditorOnly = false
+    private var neutralMode: String? = null
     private var historyCrashPhase: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        neutralMode?.let { mode ->
+            case(mode) { when(mode) {
+                "neutral-math" -> NeutralBalanceMathAudit(this,output).run()
+                "neutral-raw" -> RawNeutralAudit(this,output).run()
+                "neutral-boundaries" -> NeutralPickAudit(this,output).stageBoundaries()
+                "neutral-process" -> NeutralPickAudit(this,output).process()
+                else -> NeutralPickAudit(this,output).editor(mode == "neutral-layout")
+            } }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         if (historyEditorOnly) {
             case("history.editor") { PersistentHistoryEditorAudit(this, output).run() }
             val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }

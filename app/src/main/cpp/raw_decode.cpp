@@ -38,6 +38,7 @@ namespace {
 struct DecodedRaw : NativeRawPixels {
     float cam_mul[4] = {};       // 相机白平衡乘数（R, G, B, G2）
     float cam_xyz[9] = {};       // XYZ -> camera 矩阵（3x3，行主序）
+    float neutral_calibration[13] = {}; // output-from-camera 3x3, applied pre_mul[3], colour count
     std::string make, model;
     std::string lens;            // 镜头型号（EXIF）
     float focal = 0.0f;          // 当前焦距 mm
@@ -238,6 +239,12 @@ bool decode_raw(const std::string& path, bool half_size, const float* user_mul,
         out.height = source_height;
         const auto& color = raw.imgdata.color;
         const auto& idata = raw.imgdata.idata;
+        for (unsigned row = 0; row < 3; ++row) {
+            for (unsigned column = 0; column < 3; ++column)
+                out.neutral_calibration[row * 3 + column] = raw.output_matrix[row * 4 + column];
+            out.neutral_calibration[9 + row] = color.pre_mul[row];
+        }
+        out.neutral_calibration[12] = float(idata.colors);
         for (unsigned c = 0; c < 4; ++c) out.cam_mul[c] = color.cam_mul[c];
         for (unsigned row = 0; row < 3; ++row)
             for (unsigned col = 0; col < 3; ++col)
@@ -317,6 +324,66 @@ void throw_engine_error(JNIEnv* env, const std::string& msg) {
 }  // namespace
 
 extern "C" {
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_spektralab_android_engine_RawDecoder_nativeReadCameraInfo(JNIEnv* env, jobject, jstring path) {
+    try {
+        const char* text = env->GetStringUTFChars(path, nullptr);
+        if (!text) return nullptr;
+        const std::string file(text);
+        env->ReleaseStringUTFChars(path, text);
+        theia::raw::Decoder raw;
+        std::string error;
+        if (!raw_stage_succeeded(raw.open_file(file.c_str()), "metadata", error)) {
+            throw_engine_error(env, error); return nullptr;
+        }
+        float values[13]{};
+        for (unsigned row = 0; row < 3; ++row)
+            for (unsigned column = 0; column < 3; ++column)
+                values[row * 3 + column] = raw.imgdata.color.cam_xyz[row][column];
+        for (unsigned index = 0; index < 4; ++index) values[9 + index] = raw.imgdata.color.cam_mul[index];
+        auto result = env->NewFloatArray(13);
+        if (result) env->SetFloatArrayRegion(result, 0, 13, values);
+        return result;
+    } catch (const std::exception& error) { throw_engine_error(env, error.what()); return nullptr; }
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_spektralab_android_engine_RawDecoder_nativeDecodeNeutral(JNIEnv* env, jobject, jstring path,
+    jfloatArray userMul, jobject cancellation) {
+    try {
+        RawCancellation cancelled(env, cancellation);
+        const char* text = env->GetStringUTFChars(path, nullptr);
+        if (!text) return nullptr;
+        const std::string file(text);
+        env->ReleaseStringUTFChars(path, text);
+        float multipliers[4]{};
+        if (userMul) {
+            if (env->GetArrayLength(userMul) != 4) { throw_engine_error(env, "Invalid RAW white balance"); return nullptr; }
+            env->GetFloatArrayRegion(userMul, 0, 4, multipliers);
+            if (env->ExceptionCheck()) return nullptr;
+        }
+        DecodedRaw raw;
+        std::string error;
+        if (!decode_raw(file, false, userMul ? multipliers : nullptr, raw, error, 1024, &cancelled)) {
+            if (!env->ExceptionCheck()) throw_engine_error(env, error);
+            return nullptr;
+        }
+        auto pixels = env->NewFloatArray(static_cast<jsize>(raw.rgb.size()));
+        auto calibration = env->NewFloatArray(13);
+        auto xyz = env->NewFloatArray(9);
+        auto shot = env->NewFloatArray(4);
+        if (!pixels || !calibration || !xyz || !shot) return nullptr;
+        env->SetFloatArrayRegion(pixels, 0, static_cast<jsize>(raw.rgb.size()), raw.rgb.data());
+        env->SetFloatArrayRegion(calibration, 0, 13, raw.neutral_calibration);
+        env->SetFloatArrayRegion(xyz, 0, 9, raw.cam_xyz);
+        env->SetFloatArrayRegion(shot, 0, 4, raw.cam_mul);
+        const auto cls = env->FindClass("com/spektralab/android/engine/RawNeutralPreview");
+        if (!cls || env->ExceptionCheck()) return nullptr;
+        const auto ctor = env->GetMethodID(cls, "<init>", "(II[F[F[F[F)V");
+        return ctor ? env->NewObject(cls, ctor, jint(raw.width), jint(raw.height), pixels, calibration, xyz, shot) : nullptr;
+    } catch (const std::exception& error) { throw_engine_error(env, error.what()); return nullptr; }
+}
 
 JNIEXPORT jstring JNICALL
 Java_com_spektralab_android_engine_RawDecoder_nativeDecoderIdentity(JNIEnv* env, jobject) {

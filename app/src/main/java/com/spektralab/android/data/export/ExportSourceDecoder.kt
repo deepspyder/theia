@@ -18,12 +18,12 @@ internal object ExportSourceDecoder {
         val size = options.renderResolution
         if (raw) {
             val cancellation = RawDecodeCancellation { check(); false }
-            val xyz = if (params.cameraWbCustom) RawDecoder.readCameraMatrix(context, source, cancellation) else null
+            val info = if (params.cameraWbCustom && (params.cameraWbTemperatureAsShot || params.cameraWbTintAsShot))
+                RawDecoder.readCameraInfo(context, source, cancellation) else null
+            val xyz = info?.copyOfRange(0, 9) ?: if (params.cameraWbCustom) RawDecoder.readCameraMatrix(context, source, cancellation) else null
             fun multipliers(matrix: FloatArray?): FloatArray? {
                 if (!params.cameraWbCustom || matrix == null) return null
-                val result = FloatArray(4)
-                return result.takeIf { CameraWhiteBalance.multipliersFor(matrix, params.cameraWbKelvin.toDouble(),
-                    params.cameraWbTint.toDouble(), it) }
+                return CameraWhiteBalance.resolve(params, matrix, info?.copyOfRange(9, 13))
             }
             var image = measureExport("raw_decode") { RawDecoder.decodeForExport(context, source, size, multipliers(xyz), cancellation) }
             try {

@@ -8,7 +8,7 @@ import org.json.JSONObject
 /** Explicit ownership keeps copy, preview and presets on the same field contract. */
 enum class EditGroup(val key: String, val fields: Set<String>) {
     MATERIAL("material", setOf("film_stock", "print_stock")),
-    DECODE("decode", setOf("camera_wb_kelvin", "camera_wb_tint", "camera_wb_custom")),
+    DECODE("decode", setOf("camera_wb_kelvin", "camera_wb_tint", "camera_wb_custom", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")),
     FILM("film", setOf("exposure_compensation_ev", "auto_exposure_method", "auto_exposure", "film_format_mm",
         "scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
         "scene_latitude_shadow_knee", "scene_latitude_shadow_room", "scene_latitude_rolloff", "scene_latitude_max_lift",
@@ -81,7 +81,7 @@ class EditTemplate private constructor(val groups: Set<EditGroup>, private val v
 
     companion object {
         private val optional = setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
-            "halation_model_version", "halation_headroom_ev")
+            "halation_model_version", "halation_headroom_ev", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")
 
         fun capture(params: EditorParams, groups: Set<EditGroup>): EditTemplate {
             require(groups.isNotEmpty())
@@ -103,6 +103,8 @@ class EditTemplate private constructor(val groups: Set<EditGroup>, private val v
             require(values.keys().asSequence().all { it in fields })
             require((fields - optional).all(values::has))
             HalationModel.requireReadable(values)
+            for (key in listOf("camera_wb_temperature_as_shot", "camera_wb_tint_as_shot"))
+                require(!values.has(key) || values.get(key) is Boolean)
             if (values.has("halation_headroom_ev")) {
                 val raw = values.get("halation_headroom_ev")
                 require(raw is Number && raw.toDouble().isFinite() && raw.toDouble() in 0.0..8.0)
