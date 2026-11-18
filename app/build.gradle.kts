@@ -19,8 +19,8 @@ android {
         applicationId = "com.spektralab.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.1.7"
         testInstrumentationRunner = "com.spektralab.android.FunctionalAuditInstrumentation"
 
         // Vulkan 与 LibRaw 在 64 位 ARM 上最稳；加 x86_64 方便在模拟器上跑。
@@ -123,7 +123,19 @@ val generateMaterialCatalog = tasks.register<Exec>("generateMaterialCatalog") {
     commandLine(python, script.absolutePath, "--profiles", profiles.absolutePath, "--output", output.absolutePath)
 }
 android.sourceSets.getByName("main").assets.srcDir(materialCatalogAssets)
-tasks.named("preBuild").configure { dependsOn(generateMaterialCatalog) }
+val verifyEngineShaderAbi = tasks.register<Exec>("verifyEngineShaderAbi") {
+    mustRunAfter("compileEngineShaders", "syncEngineResources")
+    val shaders = file("src/main/assets/engine/resources/vulkan")
+    val report = layout.buildDirectory.file("intermediates/engineShaderAbi/verified.json").get().asFile
+    inputs.dir(shaders)
+    inputs.files(rootProject.file("tools/verify_windowed_spirv.py"), rootProject.file("tools/window_contracts.py"),
+        file("src/main/cpp/windows/window_plan.hpp"))
+    outputs.file(report)
+    workingDir = rootProject.projectDir
+    doFirst { report.parentFile.mkdirs() }
+    commandLine(python, "tools/verify_windowed_spirv.py", shaders.absolutePath, "--json", report.absolutePath)
+}
+tasks.named("preBuild").configure { dependsOn(generateMaterialCatalog, verifyEngineShaderAbi) }
 
 tasks.register<Exec>("syncEngineResources") {
     group = "spektralab"

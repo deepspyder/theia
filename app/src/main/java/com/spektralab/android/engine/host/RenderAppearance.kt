@@ -54,7 +54,10 @@ internal object RenderAppearance {
             consecutive = if (expected / COLUMNS > .025 && rendered / COLUMNS < .002) consecutive + 1 else 0
             longest = maxOf(longest, consecutive)
         }
-        val missingBand = longest >= 8 && correlation < .25
+        // Intact bright film perforations can dominate global correlation.
+        // A quarter-frame of expected image rows becoming black is already
+        // catastrophic evidence, independently of the surviving border.
+        val missingBand = longest >= 8
         val lostStructure = vb < va * .005 && correlation < .25
         return !missingBand && !lostStructure
     }

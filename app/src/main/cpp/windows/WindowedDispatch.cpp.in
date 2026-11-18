@@ -14,6 +14,8 @@
             error = "Export invocation count exceeds the exact 32-bit shader contract";
             return false;
         }
+        if (std::strcmp(kernel, "spk_couplers_correction") == 0)
+            return dispatch_couplers_local(args, threads, error);
         if (std::strcmp(kernel, "spk_iir_df_acc") == 0) {
             const auto meta = window_words(args, 5, 4, error);
             if (meta.empty())
@@ -69,6 +71,7 @@
             error = std::string("Unreviewed export window contract: ") + kernel;
             return false;
         }
+        const uint32_t moving_bindings = relocated_bindings(*layout);
         std::vector<BufferRef> owners;
         std::vector<Buffer*> buffers;
         for (const auto& arg : args) {
@@ -87,6 +90,7 @@
         }
         std::vector<uint32_t> meta;
         std::vector<uint32_t> geometry;
+        std::vector<float> film;
         switch (layout->kind) {
         case Kind::Take:
             meta = window_words(args, 1, 2, error);
@@ -111,10 +115,28 @@
         case Kind::Copy:
             meta = window_words(args, 1, 6, error);
             break;
+        case Kind::FilmCanvas:
+        case Kind::FilmMask: {
+            const auto words = window_words(args, 1, layout->kind == Kind::FilmCanvas ? 261 : 9, error);
+            if (words.empty()) return false;
+            film.resize(words.size());
+            std::memcpy(film.data(), words.data(), words.size() * sizeof(float));
+            for (float value : film) if (!std::isfinite(value)) {
+                error = "Invalid film canvas parameters";
+                return false;
+            }
+            if (film[2] <= 0 || film[3] <= 0 || film[4] <= 0 ||
+                (layout->kind == Kind::FilmCanvas ? film[0] <= 0 || film[1] <= 0 : film[5] <= 0)) {
+                error = "Invalid film canvas dimensions";
+                return false;
+            }
+            break;
+        }
         default:
             break;
         }
-        if (meta.empty() && layout->kind != Kind::Point && layout->kind != Kind::Opaque)
+        if (meta.empty() && layout->kind != Kind::Point && layout->kind != Kind::Opaque &&
+            layout->kind != Kind::FilmCanvas && layout->kind != Kind::FilmMask)
             return false;
         if (layout->kind == Kind::Geometry && geometry.empty())
             return false;
@@ -211,6 +233,43 @@
                 spans[2] = meta[5] ? full : packed;
                 break;
             }
+            case Kind::FilmCanvas: {
+                const uint64_t cw = uint64_t(film[0]), fw = uint64_t(film[3]), fh = uint64_t(film[4]);
+                const uint64_t y0 = first / cw, y1 = (last - 1) / cw;
+                const uint64_t x0 = y0 == y1 ? first % cw : 0, x1 = y0 == y1 ? (last - 1) % cw : cw - 1;
+                double low = std::numeric_limits<double>::infinity(), high = -low;
+                auto include = [&](double fy) { low = std::min(low, fy); high = std::max(high, fy); };
+                for (auto y : {y0, y1}) for (auto x : {x0, x1}) {
+                    const double u = (double(x) + .5) * film[2] - film[11];
+                    const double v = (double(y) + .5) * film[2] - film[12];
+                    const double s = film[5] * u + film[6] * v + film[9];
+                    const double t = film[7] * u + film[8] * v + film[10];
+                    if (film[13] < .5f) {
+                        include((t - film[15]) / film[2] - .5);
+                        include((std::clamp(t, double(film[15] + .12f), double(film[15] + film[17] - .12f)) - film[15]) / film[2] - .5);
+                    } else {
+                        include((s - film[14]) / film[2] - .5);
+                        const double inner = std::clamp(s, double(film[14] + .12f), double(film[14] + film[16] - .12f));
+                        include((inner - film[14]) / film[2] - .5);
+                        include((inner + std::max(0.f, film[260]) - film[14]) / film[2] - .5);
+                    }
+                }
+                // Match the shader's clamped bilinear source rows, including
+                // gate flare, pair exposure and a conservative float-rounding halo.
+                const auto begin = uint64_t(std::clamp(std::floor(low) - 8, 0.0, double(fh - 1)));
+                const auto end = uint64_t(std::clamp(std::ceil(high) + 10, double(begin + 1), double(fh)));
+                spans[0] = rows(begin, end, fw);
+                break;
+            }
+            case Kind::FilmMask: {
+                const uint64_t mw = uint64_t(film[2]), cw = uint64_t(film[4]), ch = uint64_t(film[5]);
+                const int64_t y0 = int64_t(film[1]) + int64_t(first / mw);
+                const int64_t y1 = int64_t(film[1]) + int64_t((last - 1) / mw);
+                const auto begin = uint64_t(std::clamp<int64_t>(y0, 0, int64_t(ch - 1)));
+                const auto end = uint64_t(std::clamp<int64_t>(y1 + 1, int64_t(begin + 1), int64_t(ch)));
+                spans[3] = rows(begin, end, cw);
+                break;
+            }
             default:
                 break;
             }
@@ -297,6 +356,10 @@
                 theia::export_execution::dispatch_stats.largest_binding_bytes = std::max(
                     theia::export_execution::dispatch_stats.largest_binding_bytes, size_t(infos[i].range));
                 push.origin[i] = uint32_t(spans[i].begin / 4);
+                if (!(moving_bindings & (1u << i)) && push.origin[i] != 0) {
+                    error = std::string("Fixed-origin export binding moved: ") + kernel + "/" + std::to_string(i);
+                    return false;
+                }
             }
             vkUpdateDescriptorSets(device_, uint32_t(writes.size()), writes.data(), 0, nullptr);
             if (!submit_sync(

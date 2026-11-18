@@ -5,15 +5,19 @@ function(theia_android_bounded_dispatch input output)
     set(before "struct ComputePipeline {")
     set(after "${before}\n    bool bounded = false;")
     theia_f14_replace(source "${before}" "${after}" "bounded pipeline flag")
+    theia_f14_replace(source
+        "    ComputePipeline* get_pipeline(const KernelSpec& spec, std::string& error) {"
+        "    ComputePipeline* get_pipeline(const KernelSpec& spec, std::string& error, bool original = false) {"
+        "explicit original shader selection")
 
     set(before "        auto found = pipelines_.find(spec.name);\n        if (found != pipelines_.end()) return &found->second;\n        const std::string path = shader_dir_ + \"/\" + spec.name + \".spv\";")
     set(after [=[        std::string key = spec.name;
         bool bounded = false;
-        if (theia::export_execution::one_shot &&
+        if (theia::export_execution::one_shot && !original &&
             std::strcmp(spec.name, "spk_math_probe") != 0 &&
             std::strcmp(spec.name, "spk_split_probe") != 0 &&
             std::strcmp(spec.name, "spk_reduce_max") != 0) {
-            const std::string candidate = key + ".windowed";
+            const std::string candidate = key + ".windowed-v3";
             auto cached = pipelines_.find(candidate);
             if (cached != pipelines_.end()) return &cached->second;
             std::ifstream variant(file_path(shader_dir_ + "/" + candidate + ".spv"), std::ios::binary);

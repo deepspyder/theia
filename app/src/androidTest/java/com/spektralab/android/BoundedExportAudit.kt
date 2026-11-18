@@ -27,9 +27,20 @@ internal class BoundedExportAudit(private val test: Instrumentation) {
                 filmId = "cinestill_800t"; paperId = "kodak_2383"
                 halationModelVersion = 2; halationHeadroomEv = 4f; halationBoostEv = 2f
             },
+            "dir-zero" to EditorParams().apply {
+                grainActive = false; glareActive = false; dirCouplersAmount = 0f
+            },
+            "dir-strong" to EditorParams().apply {
+                grainActive = false; glareActive = false; dirCouplersAmount = 2f
+            },
+            "positive-dir" to EditorParams().apply {
+                filmId = "fujifilm_velvia_100"; paperId = "fujifilm_crystal_archive_typeii"
+                grainActive = false; glareActive = false; dirCouplersAmount = 2f
+            },
         )
         val evidence = mutableListOf<String>()
         for ((name, params) in cases) {
+            test.sendStatus(0, android.os.Bundle().apply { putString("stream", "BEGIN bounded $name\n") })
             fun capture(mode: Int): ByteArray = EngineClient.create(test.targetContext).use { engine ->
                 engine.open(source, width, height, 3, params.openJson(width, height))
                 val identity = ExportRealisation.fresh(params)
@@ -55,6 +66,7 @@ internal class BoundedExportAudit(private val test: Instrumentation) {
             check(actual.contentEquals(original)) { "$name: batching changed complete U16 pixels" }
             check(capture(2).contentEquals(original)) { "$name: explicit random identity changed fresh-render pixels" }
             evidence += "$name=${actual.joinToString("") { "%02x".format(it.toInt() and 255) }}"
+            test.sendStatus(0, android.os.Bundle().apply { putString("stream", "PASS bounded $name\n") })
         }
         return "8193×281 whole vs bounded exact U16: ${evidence.joinToString()}; full recurrence lines preserved; ${geometryAndEdges()}"
     }
@@ -75,9 +87,20 @@ internal class BoundedExportAudit(private val test: Instrumentation) {
                 grainActive = false; glareActive = false
                 overscanActive = true; dateImprintActive = true; dateImprintText = "'26 11 15"
             },
-        )
+        ) + listOf("135", "135_half", "135_xpan", "120_645", "120_6x6", "120_6x7", "120_6x8", "120_6x9", "120_6x12", "120_6x17").flatMap { format ->
+            listOf("strip", "filed").map { mode ->
+                "$format-$mode" to EditorParams().apply {
+                    grainActive = false; glareActive = false
+                    overscanActive = true; overscanFormat = format; overscanMode = mode
+                    overscanFrameSeed = if (mode == "strip") 1 else 23
+                    quarterTurns = if (mode == "strip") 0 else 1
+                    dateImprintActive = true; dateImprintText = "'26 11 17"
+                }
+            }
+        }
         val evidence = mutableListOf<String>()
         for ((name, params) in cases) {
+            test.sendStatus(0, android.os.Bundle().apply { putString("stream", "BEGIN film-window $name\n") })
             fun capture(windowed: Boolean) = EngineClient.create(test.targetContext).use { engine ->
                 engine.open(input, width, height, 3, params.openJson(width, height))
                 val result = if (windowed) engine.renderExportOnce() else engine.renderForExport()
@@ -93,6 +116,7 @@ internal class BoundedExportAudit(private val test: Instrumentation) {
             }
             check(capture(false) == capture(true)) { "$name: windowing changed native dimensions/pixels" }
             evidence += name
+            test.sendStatus(0, android.os.Bundle().apply { putString("stream", "PASS film-window $name\n") })
         }
         return "odd-width ${evidence.joinToString()} complete pixels match legacy"
     }

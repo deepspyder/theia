@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from bounded_shaders import WHOLE_KERNELS, write_variant
 from windowed_shaders import write_windowed
+from window_contracts import relocation_contracts
+from verify_windowed_spirv import verify as verify_window_abi
 
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
@@ -62,21 +64,21 @@ def main() -> None:
     bounded_count = 0
     for shader in shaders:
         spv = out / (shader.stem + ".spv")
-        cmd = [glslang, "-V", "--target-env", "vulkan1.0",
+        cmd = [glslang, "-V", "--spirv-val", "--target-env", "vulkan1.0",
                f"-I{SHADER_DIR}", "-o", str(spv), str(shader)]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
             print(f"OK   {spv.name}")
         else:
             failed += 1
-            print(f"FAIL {shader.name}\n{r.stderr.strip()[:400]}")
+            print(f"FAIL {shader.name}\n{r.stderr.strip()[:400]}\n{r.stdout.strip()[:400]}")
         variant = write_variant(shader, ROOT / ".tmp/generated-bounded-shaders", (SHADER_DIR,))
         if variant is None and shader.stem not in WHOLE_KERNELS:
             failed += 1
             print(f"FAIL {shader.name}: no reviewed bounded indexing contract")
         if variant:
             bounded = out / (shader.stem + ".bounded.spv")
-            result = subprocess.run([glslang, "-V", "--target-env", "vulkan1.0", f"-I{SHADER_DIR}",
+            result = subprocess.run([glslang, "-V", "--spirv-val", "--target-env", "vulkan1.0", f"-I{SHADER_DIR}",
                                      "-o", str(bounded), str(variant)], capture_output=True, text=True)
             if result.returncode:
                 failed += 1
@@ -85,15 +87,23 @@ def main() -> None:
                 bounded_count += 1
         windowed = write_windowed(shader, ROOT / ".tmp/generated-windowed-shaders", (SHADER_DIR,))
         if windowed:
-            result = subprocess.run([glslang, "-V", "--target-env", "vulkan1.0", f"-I{SHADER_DIR}",
-                                     "-o", str(out / (shader.stem + ".windowed.spv")), str(windowed)],
+            result = subprocess.run([glslang, "-V", "--spirv-val", "--target-env", "vulkan1.0", f"-I{SHADER_DIR}",
+                                     "-o", str(out / (shader.stem + ".windowed-v3.spv")), str(windowed)],
                                     capture_output=True, text=True)
             if result.returncode:
                 failed += 1
-                print(f"FAIL {shader.stem}.windowed.spv\n{result.stderr[:400]}\n{result.stdout[:400]}")
+                print(f"FAIL {shader.stem}.windowed-v3.spv\n{result.stderr[:400]}\n{result.stdout[:400]}")
 
     if failed:
         sys.exit(f"{failed}/{len(shaders)} 个着色器编译失败")
+    for kernel, moving in relocation_contracts().items():
+        if kernel not in WHOLE_KERNELS:
+            verify_window_abi(out / (kernel + ".windowed-v3.spv"), moving)
+    # Retire only this generator's old artifacts, after the entire new set
+    # compiled and validated. Do not double-package obsolete window modules.
+    for kernel in relocation_contracts():
+        (out / (kernel + ".windowed.spv")).unlink(missing_ok=True)
+    print("已验证所有窗口化 SPIR-V 的 72 字节标量 ABI 和固定参数表寻址。")
     print(f"完成：{len(shaders)} 个 SPIR-V -> {out}")
     print(f"有界调度：{bounded_count} 个独立变体，原始着色器保留。")
 

@@ -1,7 +1,21 @@
 {
-  "date": "2026-11-16",
-  "batch": "修复Velvia导出红黄反色：真实应用复现独立:render进程未初始化StockCatalog，正片scan_film误为false、黑白语义也可能缺失。每进程加载构建时派生的6412字节材料目录，34材料字段保持并缓存，更新渲染身份避免旧错片缓存。最终JPG/NEF、四尺寸和JPEG/PNG/TIFF/P3 TIFF共47正式输出通过，PNG/TIFF完整像素与正确同尺寸参考差0，JPEG正常有损差；8组10条额外回归通过。RAW首导三轮中位数11.437→11.632秒（+1.70%）、缓存1.177→1.236秒，范围重叠；原生库和显存池高水位保持，不承诺真机零波动。仍0.1.6/code7，按用户要求纳入Git提交推送，提供Release安装包和发布日志，不在线发布；20工作包及既有未完成项保留。",
+  "date": "2026-11-17",
+  "batch": "本轮兼容代码规范审查：修复Python优化模式可绕过ABI构建门槛，拆分C++诊断模板，移动固定掩码计算，统一原生格式与构建顺序。双ABI构建、14个工具主测试、原生378/30组合同和25组像素摘要、严格窗口/材料/取消回归通过。147个Kotlin分包边界通过；2713行EditorViewModel的结构收敛与客户Adreno830真机验收仍待后续。",
   "validation": [
+    "2026-11-17规范复核：python -O空着色器目录错误放行已复现并修复；显式ValueError和截断/类型/偏移/动态索引反例在普通及优化模式通过。CMake长诊断逻辑拆到受依赖追踪的C++模板，除掩码循环外提外生成后端token一致；195个DEX/引擎资源保持。报告docs/engineering/code-quality-review-2026-11-17.md，证据.tmp/code-quality-review/verification.json。",
+    "公共v3最终验证：三张客户JPEG的99张实际导出中33 PNG RGB8与33 TIFF RGB16全通道相同，33 JPEG平均绝对通道差最大2.732819/255。42组材料/几何/随机身份与负片消费、取消重开、独立host死亡/重启/FD与交接通过；全部结果仅API37 x86_64。报告adreno-window-shader-abi-2026-11-17.md。",
+    "公共v3 RAW各三轮交错：原生完整导出6251.86→6154.85ms、原生渲染2224.39→2185.06ms；应用冷9473→9368ms，缓存1000→923ms。六轮文件摘要一致，GPU池帧峰值1243027572字节保持；样本有限，不承诺真机加速。证据.tmp/adreno-window-core/verification.json；发布包原签名、双ABI、16KiB对齐通过。",
+    "2026-11-17新增真机证据：spk_matmul3.windowed与前次couplers同在Adreno830 driver2150760528创建失败，关闭优化无效。已确认为多内核公共兼容范围，不能宣称DIR通过或照片损坏。公共差异是推送origin数组及所有表的动态偏移；旧SPIR-V合法性与72字节布局核对通过，不把候选触发写法当成已证明的专有编译器根因。",
+    "新版47模块以同一C++ Rule表读取移动绑定掩码，固定表保持原始索引，18个uint显式偏移保留72字节ABI；全部143模块验证、47个实际二进制布局与完整移动掩码核对通过，96个原始/bounded二进制保持。打包门槛拒绝旧windowed混入，变体名和缓存身份升级v3。",
+    "Khronos官方Vulkan验证层1.4.363.1明确加载：旧版严格窗口回归无VUID，新版98项原始/导出模式管线预检、严格窗口运行均无VUID；GPU调试设置随后还原，验证层不进入Release。25组含三张客户JPEG及全尺寸NEF的RGBA16完整摘要一致，其中17组也与原发布包一致。只代表API37 x86_64，客户Adreno830仍待验收。",
+    "2026-11-17 原始DIR分批：原版/完整/新路径17组U16摘要一致；两张客户JPEG的66张正式导出中，22 PNG RGB8和22 TIFF RGB16逐通道相同，22 JPEG平均绝对通道差最大2.732819/255。实际日志77条local_dir、失败windowed内核记录0；143个着色器二进制、胶片相纸资源与Release DEX均保持，195个条目逐字节核对通过。",
+    "严格8MiB工作窗口、128MiB存储绑定上限：7组8193×281含DIR强度0/2及正片，加几何/片边/日期2组全部U16相同；42组材料/几何/随机颗粒及缓存负片消费对照通过，取消后关闭会话并能重新编辑。独立C++覆盖378组分批对齐与尾部合同。报告adreno830-local-dir-2026-11-17.md。",
+    "新DIR局部分批RAW各3轮交错：应用冷导出8888→8887ms、缓存859→842ms，原生总计5877.28→5854.29ms；渲染单项+2.54%、未修改的编码保存单项+11.56%，如实保留。六轮输出摘要一致，GPU池帧峰值1243027572字节保持；仅模拟器范围，客户Adreno830自然失败是否恢复待真机。证据.tmp/vivo-local-dir/verification.json。",
+    "2026-11-17 客户真机复测：v0.1.7兼容验证包仍在Adreno830、driver2150760528创建spk_couplers_correction.windowed时失败，compiler_retry=-13->-13。已锁定DIR校正管线创建，关闭优化重试未解决；模拟器画质通过不能替代该真机验收。见vivo-vulkan-export-2026-11-16.md新增复测段。",
+    "本轮 vivo 兼容：API37 x86_64，22 PNG RGB8 与22 TIFF RGB16全通道精确一致，22 JPEG平均绝对差最大2.732819/255；强制 -13 后同模块单次重试，日期遮罩真实执行，17组原版/完整/窗口 U16摘要相同。195个DEX与引擎素材条目不变，原证书V1/V2/V3、双ABI及六SO 16KiB LOAD对齐通过；客户手机自然失败尚未复现。",
+    "本轮 RAW 正常路径各3轮交错：应用CineStill原尺寸冷导出8596→8558ms、缓存853→839ms；原生解码至TIFF总计5677.54→5811.25ms，其中渲染1985.86→2097.50ms。六轮摘要相同、GPU池帧峰值1243027572字节保持；单项存在上浮且样本有限，不宣称真机零代价，关闭优化兼容路径仍需vivo实测。证据.tmp/vivo-export/verification.json，报告docs/compatibility/vivo-vulkan-export-2026-11-16.md。",
+    "上批记录：v0.1.7发布打包：按用户要求versionName由0.1.6更新为0.1.7，versionCode由7递增为8。重新构建双ABI Universal Release，原证书V1/V2/V3通过；209项DEX/原生库/素材与前批47输出验证包逐字节一致，渲染和导出算法不变，沿用既有验证记录。更新独立v0.1.7发布日志。版本文件和日志本次未提交推送，也未在线发布；所有工作包与既有剩余项保留。",
+    "v0.1.7/code8重打包：58401353字节，SHA256 9ea77f9833e1026f5e528d7f8b46b037a6a36e31c30ef58c107e29d031135a2d；原更新证书V1/V2/V3、arm64-v8a和x86_64、6SO LOAD至少16KiB通过。209项代码/库/素材与前批验证包完全相同，仅版本元数据变化；不重复宣称运行全部功能回归。日志docs/releases/release-notes-0.1.7.md，安装包app/release/v0.1.7/Theia-v0.1.7-universal.apk。",
     "Velvia导出专项：用户JPG4096×2304、Velvia100/CrystalArchive真实编辑器导出复现同款反色，旧JPEG平均RGB8差140.6336/255；确认为独立进程目录未加载导致正片标记丢失，不是JPEG编码器。最终47张矩阵覆盖JPG/NEF、2048/2560/3840/原始、JPEG/PNG/TIFF sRGB/P3；13PNG+13TIFF+8P3 TIFF逐通道差0，13JPEG平均差最高2.53376/255。另抽测Provia、Ektachrome、Portra、CineStill、HP5；未声称25胶片每尺寸均测。报告docs/compatibility/export-material-colour-2026-11-16.md。",
     "材料目录优化：构建时从实际打包profile派生34条/6412字节目录，所有字段与旧读取器语义一致；3生成器测试通过。最终每进程首读样本48–59ms、缓存0–1ms，避免初版整profile解析约725–778ms。EngineClient身份加入material-catalog=1防止复用错误成片；原198项原生库/引擎资源、170共享引擎输入和LibRaw源保持，无质量降级和数据库迁移。最终8组10条进程/缓存/编码/材料/CineStill/50MP批量/发布/项目恢复通过。",
     "最终RAW性能：同NEF同模拟器，修复前后各3次交错，直接原生完整流程中位数7.475→7.279秒、实际CineStill原尺寸首导11.437→11.632秒、缓存1.177→1.236秒，范围重叠；原生TIFF 0fb5bfb67c269e4daae37d888971d8d7cf4fab9aabd9b0dfd316a3f41ca56ff0和实际TIFF 13ecf2f7c248b4066b6dc37b1728aca5f2e73e894758bee2f345208759cf1a3c保持，临时池frame高水位均1243027572字节。不是ARM手机速度保证，既有GPU峰值/跨网格/热稳定性剩余项不关闭。",
@@ -297,11 +311,16 @@
         "F03第七批测光及前处理后退休源图，保留共享缓冲；24MP的DIR阶段持久缓冲减少约299.9MiB，临时池峰值保持。120场景Float、38组U16、内部取消及完整应用RAW摘要通过，IIR有界执行待完成。",
         "应用显示后期补充专项：精确融合原生ARGB及直方图、有界单额外工作线程、工作台缩略图合并完成。52组同输入摘要与24MP完整16位TIFF保持；仅验收模拟器，未关闭IIR、50MP、驱动/进程容量及ARM真机等原剩余项。",
         "2026-11-15 新增最多4线程的 LibRaw/镜头校正，35个有界 Vulkan 提交变体；IIR 每条线仍保留完整双向递推。PNG/TIFF 按行，API30+ JPEG 使用系统编码器和匿名文件后备像素。首轮逐位对照通过，整图 GPU 峰值下降尚未证明；详见 windows-export-execution.md。",
-        "2026-11-15 窗口化v2：显式binding步长、offset/range与逻辑used，完整IIR列打包、FIR/几何源范围和分窗最大值归约；受限128MiB/8MiB整图及旧像素对照通过，部分跨网格只读源仍整幅，未降低全管线GPU峰值。"
+        "2026-11-15 窗口化v2：显式binding步长、offset/range与逻辑used，完整IIR列打包、FIR/几何源范围和分窗最大值归约；受限128MiB/8MiB整图及旧像素对照通过，部分跨网格只读源仍整幅，未降低全管线GPU峰值。",
+        "2026-11-16 vivo管线兼容：143 SPIR-V保持、17组U16摘要、66张正式导出、30组重试结果及正常路径RAW交错对照通过；报告vivo-vulkan-export-2026-11-16.md。自然驱动失败未在模拟器复现。",
+        "2026-11-17 DIR采用原始内核局部分批以避开Adreno830拒绝的windowed模块，保持U16与正式文件像素；378组规划、17组原图/RAW、66张导出和严格窗口材料/取消回归通过。客户原驱动自然失败尚需新包复测。",
+        "Adreno830新增矩阵windowed失败后改公共v3标量/固定表接口，98项管线预检、官方验证层与25组原图/RAW U16对照通过；96原始/bounded模块保持，47个窗口二进制ABI和地址掩码在打包前验证。具体驱动触发仍未证实。"
       ],
       "remaining": [
         "逐阶段活跃区间测量；全局归约、卷积/IIR/颗粒分块等价性；24MP/50MP 真机验证",
-        "部分片边/proof/双图的跨网格源仍按设备合法范围整幅读取；需补齐源窗口、真实ARM设备/温控及跨节点流式预算，不以模拟器或绑定分段代替全局显存验收。"
+        "部分片边/proof/双图的跨网格源仍按设备合法范围整幅读取；需补齐源窗口、真实ARM设备/温控及跨节点流式预算，不以模拟器或绑定分段代替全局显存验收。",
+        "在vivo X200 Ultra反馈固件与Adreno830 driver2150760528上验证原始DIR局部分批导出；覆盖2560与原尺寸，保留胶片和日期参数；补ARM耗时、温控与大图稳定性。",
+        "在客户Adreno830 driver2150760528对公共windowed-v3接口做全管线和同编辑2560/原尺寸复测；若仍失败需厂商编译日志或最小着色器差分，不将通用-13视作确定语句根因。"
       ],
       "sources": [
         "app/src/main/cpp/cmake/AndroidExportExecution.cmake",
@@ -345,7 +364,24 @@
         "app/src/main/cpp/shaders/vulkan/spk_window_copy.comp",
         "tools/windowed_shaders.py",
         "tools/test_windowed_shaders.py",
-        "docs/compatibility/raw-export-windowed-v2-2026-11-15.md"
+        "docs/compatibility/raw-export-windowed-v2-2026-11-15.md",
+        "app/src/main/cpp/vulkan_pipeline_compat.hpp",
+        "app/src/main/cpp/cmake/AndroidVulkanPipelines.cmake",
+        "app/src/androidTest/java/com/spektralab/android/VivoExportAudit.kt",
+        "tools/native/vulkan_pipeline_retry_audit.cpp",
+        "docs/compatibility/vivo-vulkan-export-2026-11-16.md",
+        "app/src/main/cpp/windows/LocalCouplerDispatch.cpp.in",
+        "app/src/main/cpp/windows/coupler_plan.hpp",
+        "tools/native/coupler_plan_audit.cpp",
+        "docs/compatibility/adreno830-local-dir-2026-11-17.md",
+        "tools/window_contracts.py",
+        "tools/verify_windowed_spirv.py",
+        "app/src/main/cpp/cmake/AndroidVulkanPreflight.cmake",
+        "docs/compatibility/adreno-window-shader-abi-2026-11-17.md",
+        "tools/test_verify_windowed_spirv.py",
+        "app/src/main/cpp/cmake/templates/VulkanPreflight.cpp.in",
+        "app/src/main/cpp/cmake/templates/VulkanPipelineContext.cpp.in",
+        "docs/engineering/code-quality-review-2026-11-17.md"
       ]
     },
     {

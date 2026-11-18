@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from bounded_shaders import WHOLE_KERNELS, bounded_source, expanded_source
+from window_contracts import relocation_contracts
 
 
 BLOCK = re.compile(
@@ -34,7 +35,7 @@ def relative_accesses(source: str, token: str, binding: int) -> str:
             continue  # unsized array declaration
         expression = relative_accesses(expression, token, binding)
         result.extend((source[start:match.end()],
-                       f"uint({expression}) - theia_dispatch.origin[{binding}]", "]"))
+                       f"uint({expression}) - theia_dispatch.origin{binding}", "]"))
         start = end
     result.append(source[start:])
     return "".join(result)
@@ -58,10 +59,21 @@ def windowed_source(shader: Path, include_dirs: tuple[Path, ...]) -> str | None:
         raise ValueError(f"Unreviewed storage element type: {shader.name}")
     if not blocks:
         raise ValueError(f"No storage contract: {shader.name}")
+    contracts = relocation_contracts()
+    if shader.stem not in contracts:
+        raise ValueError(f"Missing dispatcher origin contract: {shader.name}")
+    moving = contracts[shader.stem]
+    # Preserve the 72-byte host ABI, but use scalar members with explicit
+    # offsets. Avoid array access chains in push constants on mobile compilers.
+    fields = ["layout(offset = 0) uint base;", "layout(offset = 4) uint end;"]
+    fields.extend(f"layout(offset = {8 + binding * 4}) uint origin{binding};" for binding in range(16))
     source = source.replace("uint base; } theia_dispatch;",
-                            "uint base; uint end; uint origin[16]; } theia_dispatch;")
+                            "\n    " + "\n    ".join(fields) + "\n} theia_dispatch;")
     for token, binding in blocks:
-        source = relative_accesses(source, token, binding)
+        # Whole lookup/parameter tables never move. Keep their original
+        # indexing verbatim instead of adding unsigned 0-origin arithmetic.
+        if moving & (1 << binding):
+            source = relative_accesses(source, token, binding)
     # A band's last workgroup may have padding threads even before frame end.
     # Reject them before touching any descriptor, including atomic statistics.
     source, count = re.subn(r"void\s+main\s*\(\s*\)\s*\{", lambda m: m[0] +

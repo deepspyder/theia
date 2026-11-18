@@ -1,0 +1,37 @@
+        char preflight_setting[PROP_VALUE_MAX]{};
+        if (__system_property_get("debug.theia.pipeline_preflight", preflight_setting) > 0 &&
+            std::strcmp(preflight_setting, "1") == 0) {
+            size_t failures = 0, count = 0;
+            {
+                theia::export_execution::Scope scope;
+                for (bool original : {true, false}) {
+                    for (const auto& spec : kKernels) {
+                        std::string detail;
+                        const bool passed = get_pipeline(spec, detail, original) != nullptr;
+                        ++count;
+                        if (!passed)
+                            ++failures;
+                        __android_log_print(passed ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "SpkPreflight",
+                                            "kernel=%s variant=%s result=%s detail=%s", spec.name,
+                                            original ? "original" : "scalar-origins-v3", passed ? "PASS" : "FAIL",
+                                            detail.c_str());
+                    }
+                }
+            }
+            for (const auto& [name, pipeline] : pipelines_) {
+                (void)name;
+                if (pipeline.pipeline)
+                    vkDestroyPipeline(device_, pipeline.pipeline, nullptr);
+                if (pipeline.layout)
+                    vkDestroyPipelineLayout(device_, pipeline.layout, nullptr);
+                if (pipeline.descriptors)
+                    vkDestroyDescriptorSetLayout(device_, pipeline.descriptors, nullptr);
+            }
+            pipelines_.clear();
+            __android_log_print(ANDROID_LOG_INFO, "SpkPreflight", "complete attempts=%zu failures=%zu gpu=%s driver=%u",
+                                count, failures, properties_.deviceName, properties_.driverVersion);
+            if (failures) {
+                error = "Vulkan pipeline preflight failed; see SpkPreflight log";
+                return false;
+            }
+        }

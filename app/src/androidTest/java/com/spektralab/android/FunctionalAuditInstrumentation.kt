@@ -137,6 +137,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        overscanExportOnly = audit == "overscan-native"
+        legacyUiOnly = audit == "legacy-ui"
+        exportMatrixPart = arguments?.getString("matrixPart")?.takeIf { audit == "export-matrix" }
+        vivoExportMode = audit?.takeIf { it in setOf("vivo-export", "vivo-native", "pipeline-preflight") }
         exportColorDiagnostic = audit == "export-colour-diagnostic"
         exportColorApplication = audit?.takeIf { it in setOf("export-colour-application", "export-colour-matrix") }
         editorKeyboardOnly = audit == "editor-keyboard"
@@ -263,11 +267,49 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var exportLifecycleOnly = false
     private var editorKeyboardOnly = false
     private var exportColorDiagnostic = false
+    private var vivoExportMode: String? = null
     private var exportColorApplication: String? = null
     private var dateImprintOnly = false
+    private var overscanExportOnly = false
+    private var legacyUiOnly = false
+    private var exportMatrixPart: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        if (legacyUiOnly) {
+            uiAudit()
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        exportMatrixPart?.let { part ->
+            case("export.matrix.$part") { ExportMatrixAudit(this, output).let { if (part == "performance") it.performance() else it.run(part) } }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (overscanExportOnly) {
+            case("export.full_size_overscan_pixels") { OverscanExportAudit(this, output).native() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        vivoExportMode?.let { mode ->
+            case("export.vivo_compatibility") {
+                if (mode == "pipeline-preflight") {
+                    EngineClient.create(targetContext).use { it.capabilities() }
+                } else {
+                    VivoExportAudit(this, output).let { if (mode == "vivo-native") it.nativeParity() else it.application() }
+                }
+            }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         exportColorApplication?.let { mode ->
             case("export.colour_application") { ExportColorAudit(this, output).application(mode == "export-colour-matrix") }
             val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
@@ -2098,7 +2140,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
 
 
     private fun uiAudit() {
-        val activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        val activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
         lateinit var vm: EditorViewModel
         runOnMainSync { vm=ViewModelProvider(activity)[EditorViewModel::class.java] }
         await {vm.engine!=null&&!vm.busy};Thread.sleep(800)
@@ -2125,7 +2167,33 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             uiAutomation.takeScreenshot()?.let {bmp->File(output,"ui_$name.png").outputStream().use{bmp.compress(Bitmap.CompressFormat.PNG,100,it)};bmp.recycle()}
             File(output,"ui_$name.txt").writeText(tree())
         }
-        case("ui.launch"){capture("launch");check(tree().contains("Theia"));"main activity visible, no debugger dialog"}
+        fun reveal(label: String) {
+            fun find(n: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                if (n == null) return null
+                if (n.text?.toString() == label || n.contentDescription?.toString() == label) return n
+                for (i in 0 until n.childCount) find(n.getChild(i))?.let { return it }
+                return null
+            }
+            fun scroll(n: AccessibilityNodeInfo?, action: Int): Boolean {
+                if (n == null) return false
+                if (n.isScrollable && n.performAction(action)) return true
+                for (i in 0 until n.childCount) if (scroll(n.getChild(i), action)) return true
+                return false
+            }
+            repeat(25) {
+                if (android.os.Build.VERSION.SDK_INT >= 34) uiAutomation.clearCache()
+                find(uiAutomation.rootInActiveWindow)?.let { node ->
+                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+                    waitForIdleSync(); Thread.sleep(100)
+                    if (android.os.Build.VERSION.SDK_INT >= 34) uiAutomation.clearCache()
+                    if (find(uiAutomation.rootInActiveWindow)?.isVisibleToUser == true) return
+                }
+                check(scroll(uiAutomation.rootInActiveWindow, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) { "Control not reachable: $label" }
+                Thread.sleep(100)
+            }
+            error("Control not reachable: $label")
+        }
+        case("ui.launch"){await(15000){tree().contains("更多操作")};capture("launch");check(tree().contains("Theia"));"main activity visible, no debugger dialog"}
         case("ui.test_image_import"){click("更多操作");click("测试图");await{vm.lastResult!=null};capture("import");check(vm.rendered!=null);"test image rendered via real menu"}
         case("ui.gallery_entry") {
             val standFile = File(output, "stand-a.jpg")
@@ -2144,9 +2212,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         }
 
 
-        for((tab,section) in listOf("拍摄" to "胶片与相纸","暗房" to "放大机","调色" to "白平衡","导出" to "配方"))case("ui.tab.$tab"){if(!tree().contains(section))click(tab);await{tree().contains(section)};capture(tab);"tab content verified: $section"}
+        for((tab,section) in listOf("拍摄" to "胶片与相纸","放印" to "放大机","调色" to "暗角","导出" to "文件格式"))case("ui.tab.$tab"){if(!tree().contains(section))click(tab);reveal(section);check(tree().contains(section));capture(tab);"tab content verified: $section"}
         case("ui.grain_toggle"){
-            click("暗房");await{tree().contains("放大机")}
+            click("放印");await{tree().contains("放大机")}
+            reveal("乳剂与暗房效应");click("乳剂与暗房效应")
             var visible=false
             repeat(12){if(tree().contains("颗粒"))visible=true else {
                 fun scroll(n:AccessibilityNodeInfo?):Boolean {if(n==null)return false;if(n.isScrollable&&n.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))return true;for(i in 0 until n.childCount)if(scroll(n.getChild(i)))return true;return false}
@@ -2157,13 +2226,15 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         }
         case("ui.system_picker_import") {
             val name="bmw-f-450-rm-sport-2048x2048-27531.jpg"
-            click("导入照片")
+            if (tree().contains("返回大图预览")) click("返回大图预览")
+            click("更多操作");click("导入照片")
             await(15000) {
                 val pkg = uiAutomation.rootInActiveWindow?.packageName?.toString().orEmpty()
                 pkg != activity.packageName && tree().isNotBlank()
             }
             capture("picker")
             val old=vm.lastResult
+            val previousUri=vm.currentUri
             try {
                 // Photo Picker exposes date-based content descriptions, while
                 // the legacy document fallback exposes the filename. Accept
@@ -2179,38 +2250,35 @@ class FunctionalAuditInstrumentation : Instrumentation() {
                 val tile=findImageTile(uiAutomation.rootInActiveWindow)
                 if(tile!=null) { check(tile.performAction(AccessibilityNodeInfo.ACTION_CLICK)); waitForIdleSync(); Thread.sleep(300) }
                 if (uiAutomation.rootInActiveWindow?.packageName?.toString() == activity.packageName) {
-                    await{vm.currentUri?.lastPathSegment?.contains("bmw-f-450-rm-sport-2048x2048-27531") == true && vm.lastResult !== old && !vm.busy}
+                    await{vm.currentUri != null && vm.currentUri != previousUri && vm.lastResult !== old && !vm.busy}
                     check(vm.errorMessage==null){vm.errorMessage!!};capture("picker_imported")
-                    return@case "selected the real JPEG $name using the system picker; decode and render returned to the editor"
+                    return@case "selected the first visible real photo using the system picker; new URI, decode and render returned to the editor"
                 }
                 fun openLabel(n:AccessibilityNodeInfo?):String? {
                     if(n==null)return null
-                    val label=n.text?.toString()?.lowercase().orEmpty()
-                    if(n.isClickable && (
+                    val label=(n.text ?: n.contentDescription)?.toString()?.lowercase().orEmpty()
+                    if(
                         label=="open" || label.startsWith("open ") || label=="打开" ||
                         label.startsWith("选择") || label=="done" || label=="add" ||
-                        label=="select" || label=="完成" || label=="添加"
-                    )) return n.text?.toString() ?: n.contentDescription?.toString()
+                        label=="select" || label=="完成" || label.startsWith("添加") || label.startsWith("add (")
+                    ) return n.text?.toString() ?: n.contentDescription?.toString()
                     for(i in 0 until n.childCount){val found=openLabel(n.getChild(i));if(found!=null)return found}
                     return null
                 }
                 val confirm=openLabel(uiAutomation.rootInActiveWindow)
+                capture("picker_selected")
                 if (confirm != null) click(confirm)
                 await(15000){vm.lastResult!==old&&vm.hasPhoto&&vm.sourceBitmap!=null&&!vm.busy}
-                check(vm.errorMessage==null){vm.errorMessage!!};capture("picker_imported");"selected the real JPEG $name in Documents UI and confirmed Open"
+                check(vm.errorMessage==null){vm.errorMessage!!};capture("picker_imported");"selected a real photo in the system picker and confirmed import/decode/render"
             }
             finally {repeat(4){if(uiAutomation.rootInActiveWindow?.packageName?.toString()!=targetContext.packageName){sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);Thread.sleep(250)}}}
         }
         case("ui.crop_drag_outside_boundary") {
             // Test-owned file keeps the crop gesture independent of the system picker's outcome.
             val old=vm.lastResult;runOnMainSync{vm.dismissError();vm.openPhotos(listOf(Uri.fromFile(File(output,"fixture.jpg"))))};await{vm.lastResult!==old&&!vm.busy}
-            click("调色");await{tree().contains("白平衡")}
-            var found=false
-            repeat(10){if(tree().contains("自由裁剪"))found=true else {
-                fun scroll(n:AccessibilityNodeInfo?):Boolean {if(n==null)return false;if(n.isScrollable&&n.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))return true;for(i in 0 until n.childCount)if(scroll(n.getChild(i)))return true;return false}
-                check(scroll(uiAutomation.rootInActiveWindow));Thread.sleep(200)
-            }}
-            check(found);click("自由裁剪");check(vm.isCropping)
+            if (tree().contains("返回大图预览")) click("返回大图预览")
+            click("更多操作");click("裁剪照片")
+            check(vm.isCropping)
             if(android.os.Build.VERSION.SDK_INT>=34)uiAutomation.clearCache()
             fun locate(n:AccessibilityNodeInfo?):AccessibilityNodeInfo?{if(n==null)return null;if(n.contentDescription?.toString()=="照片预览")return n;for(i in 0 until n.childCount){val r=locate(n.getChild(i));if(r!=null)return r};return null}
             val rect=Rect();locate(uiAutomation.rootInActiveWindow)!!.getBoundsInScreen(rect)

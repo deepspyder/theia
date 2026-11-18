@@ -319,7 +319,7 @@ class EngineClient private constructor(
         @JvmStatic
         private external fun nativeBuildInfo(): String
 
-        fun buildInfo(): String = nativeBuildInfo() + "; android-export=descriptor-windows-v2; material-catalog=1"
+        fun buildInfo(): String = nativeBuildInfo() + "; android-export=scalar-origins-v3-film-windows-1; material-catalog=1"
 
         /**
          * 创建引擎。先把 `assets/engine/` 解压到 `filesDir/engine/`（引擎需要
@@ -345,7 +345,8 @@ class EngineClient private constructor(
                 // Only our derived shader variants are eligible for this cleanup.
                 val packaged = context.assets.list("engine/resources/vulkan").orEmpty().toSet()
                 File(path, "vulkan").listFiles()?.filter {
-                    it.isFile && (it.name.endsWith(".bounded.spv") || it.name.endsWith(".windowed.spv")) && it.name !in packaged
+                    it.isFile && (it.name.endsWith(".bounded.spv") || it.name.endsWith(".windowed.spv") ||
+                        it.name.endsWith(".windowed-v3.spv")) && it.name !in packaged
                 }?.forEach { check(it.delete()) { "Cannot remove obsolete shader variant" } }
                 preparedResources = path
                 path

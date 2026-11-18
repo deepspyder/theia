@@ -1725,6 +1725,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         isExportCommitCompleted = true; exportCancelRequested = false
                     } }
                     outcome = Result.success(path)
+                } catch (cancelled: ExportCancelled) {
+                    // A user cancellation is a completed output transaction.
+                    // Report it to the sheet before clearing progress, so the
+                    // user can retry and no result callback is silently lost.
+                    outcome = Result.failure(cancelled)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (failure: Throwable) {
                     if (failure !is Exception && failure !is OutOfMemoryError) throw failure

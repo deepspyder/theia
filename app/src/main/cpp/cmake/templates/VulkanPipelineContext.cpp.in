@@ -1,0 +1,8 @@
+        const char* creation_stage = "vkCreateShaderModule";
+        theia::vulkan_pipeline::Compilation compilation{VK_SUCCESS, VK_SUCCESS, false};
+        auto pipeline_error = [&](VkResult status) {
+            return theia::vulkan_pipeline::failure(creation_stage, key, properties_, status, compilation) +
+                   " [window_abi=scalar-origins-v3; max_push=" +
+                   std::to_string(properties_.limits.maxPushConstantsSize) +
+                   "; max_storage=" + std::to_string(properties_.limits.maxStorageBufferRange) + "]";
+        };

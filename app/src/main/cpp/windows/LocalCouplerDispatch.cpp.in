@@ -1,0 +1,134 @@
+    // Adreno 830 rejects the generated DIR window shader on the reported
+    // driver. Use the untouched original shader with descriptor-local pixels.
+    // No full-plane copy, CPU pixel work or disabled DIR correction is needed.
+    bool dispatch_couplers_local(const std::vector<Arg>& args, size_t threads, std::string& error) {
+        constexpr const char* kernel = "spk_couplers_correction";
+        const KernelSpec* spec = find_kernel(kernel);
+        if (!spec || spec->bindings != 7 || args.size() != 7 || !args[0].buffer || !args[6].buffer ||
+            uint64_t(threads) * 12 > args[0].buffer->used || uint64_t(threads) * 12 > args[6].buffer->used) {
+            error = "Invalid descriptor-local DIR planes";
+            return false;
+        }
+        const auto total = window_words(args, 5, 1, error);
+        if (total.size() != 1 || total[0] != threads) {
+            if (error.empty())
+                error = "Invalid descriptor-local DIR pixel count";
+            return false;
+        }
+        // Keep this mutable four-byte counter private. Never overwrite a shared
+        // inline metadata allocation, which may alias another pooled argument.
+        auto counter = alloc(sizeof(uint32_t), error);
+        if (!counter)
+            return false;
+        std::vector<BufferRef> owners;
+        std::array<Buffer*, 7> buffers{};
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (i == 5) {
+                buffers[i] = counter.get();
+                continue;
+            }
+            auto* buffer = args[i].buffer;
+            if (!buffer && args[i].bytes && args[i].size) {
+                owners.push_back(upload(args[i].bytes, args[i].size, error));
+                if (!owners.back())
+                    return false;
+                buffer = owners.back().get();
+            }
+            constexpr std::array<size_t, 7> minimum{12, 36, 12, 4, 4, 4, 12};
+            if (!buffer || buffer->used < minimum[i] || (i != 0 && i != 6 && buffer->used > storage_range_limit_)) {
+                error = "Invalid descriptor-local DIR constant binding " + std::to_string(i);
+                return false;
+            }
+            buffers[i] = buffer;
+        }
+        const uint64_t alignment = std::max<uint64_t>(4, properties_.limits.minStorageBufferOffsetAlignment);
+        const uint64_t max_invocations = uint64_t(properties_.limits.maxComputeWorkGroupCount[0]) * spec->workgroup;
+        std::lock_guard<std::mutex> lock(dispatch_mutex_);
+        // Explicitly load spk_couplers_correction.spv, with no push constants.
+        // The failing .windowed pipeline is never created on this path.
+        ComputePipeline* pipeline = get_pipeline(*spec, error, true);
+        if (!pipeline || pipeline->bounded)
+            return false;
+        VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, spec->bindings};
+        VkDescriptorPoolCreateInfo pool_create{};
+        pool_create.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_create.maxSets = 1;
+        pool_create.poolSizeCount = 1;
+        pool_create.pPoolSizes = &pool_size;
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        VkResult result = vkCreateDescriptorPool(device_, &pool_create, nullptr, &pool);
+        if (result != VK_SUCCESS) {
+            error = vk_error("DIR descriptor pool", result);
+            return false;
+        }
+        struct PoolGuard {
+            VkDevice device;
+            VkDescriptorPool pool;
+            ~PoolGuard() { vkDestroyDescriptorPool(device, pool, nullptr); }
+        } guard{device_, pool};
+        VkDescriptorSetAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocation.descriptorPool = pool;
+        allocation.descriptorSetCount = 1;
+        allocation.pSetLayouts = &pipeline->descriptors;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        result = vkAllocateDescriptorSets(device_, &allocation, &set);
+        if (result != VK_SUCCESS) {
+            error = vk_error("DIR descriptor set", result);
+            return false;
+        }
+        std::array<VkDescriptorBufferInfo, 7> infos{};
+        std::array<VkWriteDescriptorSet, 7> writes{};
+        for (size_t i = 0; i < writes.size(); ++i) {
+            infos[i] = {buffers[i]->handle, 0, buffers[i]->used};
+            writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[i].dstSet = set;
+            writes[i].dstBinding = uint32_t(i);
+            writes[i].descriptorCount = 1;
+            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[i].pBufferInfo = &infos[i];
+        }
+        ++theia::export_execution::dispatch_stats.kernels;
+        size_t batches = 0;
+        for (uint64_t first = 0; first < threads;) {
+            if (theia::export_execution::cancellation &&
+                theia::export_execution::cancellation->load(std::memory_order_relaxed)) {
+                error = "render cancelled";
+                return false;
+            }
+            const auto batch =
+                theia::export_windows::coupler_batch(first, threads, window_budget(), alignment, max_invocations);
+            if (!batch.pixels) {
+                error = "No aligned descriptor-local DIR batch fits device limits";
+                return false;
+            }
+            for (size_t i : {size_t(0), size_t(6)})
+                infos[i] = {buffers[i]->handle, batch.offset_bytes, batch.size_bytes};
+            vkUpdateDescriptorSets(device_, uint32_t(writes.size()), writes.data(), 0, nullptr);
+            if (!submit_sync(
+                    [&](VkCommandBuffer command) {
+                        device_barrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+                        vkCmdUpdateBuffer(command, counter.get()->handle, 0, sizeof(batch.pixels), &batch.pixels);
+                        device_barrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                       VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+                        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->pipeline);
+                        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->layout, 0, 1, &set,
+                                                0, nullptr);
+                        vkCmdDispatch(command,
+                                      uint32_t((uint64_t(batch.pixels) + spec->workgroup - 1) / spec->workgroup), 1, 1);
+                    },
+                    "Vulkan descriptor-local DIR dispatch", error))
+                return false;
+            auto& stats = theia::export_execution::dispatch_stats;
+            ++stats.submissions;
+            stats.largest_invocations = std::max(stats.largest_invocations, size_t(batch.pixels));
+            for (const auto& info : infos)
+                stats.largest_binding_bytes = std::max(stats.largest_binding_bytes, size_t(info.range));
+            first += batch.pixels;
+            ++batches;
+        }
+        __android_log_print(ANDROID_LOG_INFO, "SpkExport",
+                            "local_dir kernel=%s.spv pixels=%zu batches=%zu alignment=%llu", kernel, threads, batches,
+                            static_cast<unsigned long long>(alignment));
+        return true;
+    }

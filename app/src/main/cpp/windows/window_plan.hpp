@@ -19,12 +19,22 @@ struct Push {
 static_assert(sizeof(Push) == 72);
 static_assert(offsetof(Push, origin) == 8);
 
-enum class Kind { Point, Take, Pack16, Fir, Iir, Stride, Zoom, Geometry, Copy, Opaque };
+enum class Kind { Point, Take, Pack16, Fir, Iir, Stride, Zoom, Geometry, Copy, FilmCanvas, FilmMask, Opaque };
 struct Rule {
     const char* kernel;
     Kind kind;
     std::array<uint32_t, binding_count> stride;
+    // Non-pointwise bindings whose starts may move in spans_for. Build-time
+    // shader generation reads this same table; zero-origin tables stay static.
+    uint32_t additional_windows = 0;
 };
+constexpr uint32_t relocated_bindings(const Rule& rule) {
+    uint32_t result = rule.additional_windows;
+    for (size_t i = 0; i < binding_count; ++i)
+        if (rule.stride[i])
+            result |= 1u << i;
+    return result;
+}
 inline const Rule* rule(const char* kernel) {
     static constexpr Rule rules[] = {
         {"spk_affine3", Kind::Point, {4, 0, 0, 0, 4}},
@@ -39,13 +49,13 @@ inline const Rule* rule(const char* kernel) {
         {"spk_di_encode", Kind::Point, {12, 0, 0, 12}},
         {"spk_di_normalise", Kind::Point, {12, 0, 0, 0, 12}},
         {"spk_edr", Kind::Point, {12, 0, 0, 0, 12}},
-        {"spk_geometry_resample_df", Kind::Geometry, {0, 0, 0, 12}},
+        {"spk_geometry_resample_df", Kind::Geometry, {0, 0, 0, 12}, 0x01},
         {"spk_glare_add", Kind::Point, {4, 4, 0, 0, 4}},
         {"spk_grain_layer_one", Kind::Point, {12, 0, 0, 0, 0, 0, 0, 12}},
         {"spk_grain_layers", Kind::Point, {12, 0, 0, 0, 0, 0, 0, 12}},
         {"spk_grain_simple", Kind::Point, {12, 0, 0, 0, 12}},
         {"spk_highlight_headroom", Kind::Point, {12, 0, 0, 12}},
-        {"spk_iir_df_acc", Kind::Iir, {}},
+        {"spk_iir_df_acc", Kind::Iir, {}, 0x49},
         {"spk_lincomb3", Kind::Point, {4, 4, 0, 0, 0, 4}},
         {"spk_log10_guarded", Kind::Point, {4, 0, 0, 4}},
         {"spk_lognormal_field", Kind::Point, {0, 0, 12}},
@@ -55,23 +65,23 @@ inline const Rule* rule(const char* kernel) {
         {"spk_mul", Kind::Point, {4, 4, 0, 4}},
         {"spk_print_exposure", Kind::Point, {4, 0, 0, 4}},
         {"spk_scene_latitude", Kind::Point, {12, 0, 0, 12}},
-        {"spk_sep_fir_acc", Kind::Fir, {}},
+        {"spk_sep_fir_acc", Kind::Fir, {}, 0x25},
         {"spk_spectral_epilogue", Kind::Point, {12, 0, 0, 0, 0, 0, 12}},
-        {"spk_stride_sample", Kind::Stride, {0, 0, 12}},
-        {"spk_take_rgb", Kind::Take, {0, 0, 12}},
+        {"spk_stride_sample", Kind::Stride, {0, 0, 12}, 0x01},
+        {"spk_take_rgb", Kind::Take, {0, 0, 12}, 0x01},
         {"spk_tc_b", Kind::Point, {12, 0, 0, 8, 4}},
-        {"spk_to_rgba16", Kind::Pack16, {12, 0, 0}},
-        {"spk_zoom_bilinear_mirror", Kind::Zoom, {0, 0, 12}},
+        {"spk_to_rgba16", Kind::Pack16, {12, 0, 0}, 0x04},
+        {"spk_zoom_bilinear_mirror", Kind::Zoom, {0, 0, 12}, 0x01},
         {"spk_view_grade", Kind::Point, {8, 0, 0, 0, 12}},
         {"spk_view_grade_di", Kind::Point, {8, 0, 0, 0, 12}},
-        {"spk_window_copy", Kind::Copy, {}},
+        {"spk_window_copy", Kind::Copy, {}, 0x05},
         {"spk_math_probe", Kind::Opaque, {}},
         {"spk_rng_probe", Kind::Opaque, {}},
         {"spk_view_geometry", Kind::Opaque, {}},
         {"spk_view_pack", Kind::Opaque, {}},
         {"spk_view_pair", Kind::Opaque, {}},
-        {"spk_overscan_canvas", Kind::Opaque, {}},
-        {"spk_overscan_add_mask", Kind::Opaque, {}},
+        {"spk_overscan_canvas", Kind::FilmCanvas, {0, 0, 0, 12}, 0x01},
+        {"spk_overscan_add_mask", Kind::FilmMask, {4, 0, 0, 0}, 0x08},
         {"spk_overscan_film_present", Kind::Point, {12, 0, 0, 12}},
         {"spk_overscan_light", Kind::Point, {12, 0, 0, 12}},
     };
