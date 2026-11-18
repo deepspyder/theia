@@ -68,3 +68,38 @@ cancel/commit, flat-field vignette pixels and TIFF parity, serialization and
 undo/redo, twelve format×capture×GPS combinations, actual engine exports and
 a two-source metadata batch. Coordinates in test fixtures are synthetic.
 Device evidence is emulator based; no hardware performance claim.
+
+# R09 full-screen detail contract (2026-11-19)
+
+R09 extends the incumbent Theia darkroom with an original-pixel, full-screen
+detail surface. It opens the frozen finished U16 frame from the existing output
+chain and keeps the image as the dominant visual element within the established
+charcoal, warm-paper and restrained-amber language. At 100%, one file pixel maps
+to one physical screen pixel; the image is centered without upscaling. The
+100%, 200% and 400% controls, current percentage, drag pan and pinch zoom are
+explicit and remain reachable with system font scaling.
+
+The canvas clips to its own bounds at every scale. The footer is an opaque
+surface, stays outside the image clip, and contains the file-space and display-
+space colour labels. Top and bottom system-safe areas remain clear. The detail
+session retains only visible 512px RGBA_F16 tiles under a 64 MiB per-session
+budget; tile requests are generation-scoped so cancelled or stale frames cannot
+publish over the current view. This budget describes retained visible tiles, not
+whole-process, GPU-upload or first-render peak memory.
+
+Close, system Back, cancel, backgrounding and low-memory teardown return to the
+unchanged editor and release the anonymous/unlinked source descriptor. Viewing
+never publishes to the photo library, creates an export-success receipt, or
+mutates the formal export. The detail surface may be reopened to request a new
+frame after returning to the foreground.
+
+File-space proof is independent from display presentation: the frozen output is
+rendered and transformed in its selected file colour space first, then converted
+to the declared sRGB or Display P3 display path. It is a proof of actual file
+pixels and F16 transport, with no JPEG/HEIF lossy simulation and no claim of HDR,
+paper/printer ICC, or first-render peak reduction. The supplied visual review
+passes phone, large-font, landscape and tablet captures for identity, clipping,
+responsive layout and returned-editor state. It does not establish ARM/P3
+hardware performance, sustained 50MP RAW load, platform low-memory timing or
+gesture semantics beyond the functional packet. These limitations are recorded
+without changing the incumbent DESIGN.md or `.impeccable/design.json`.

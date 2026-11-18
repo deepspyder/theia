@@ -18,8 +18,9 @@ internal class PhotoExportPipeline(private val context: Context) {
     suspend fun write(uri: Uri, name: String, edit: EditSnapshot, options: ExportOptions,
                       check: () -> Unit, beforeNative: suspend () -> Unit,
                       progress: (String, Float) -> Unit,
+                      recordReceipt: Boolean = true,
                       encode: (Rgba16Source, ExportMetadata, ExportCoordinator.Task) -> String): Output =
-        ExportCoordinator.get(context).run(uri, name, edit, options, check) { task, source ->
+        ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt) { task, source ->
             val metadata = withContext(Dispatchers.IO) {
                 val exif = runCatching { ExifInterface(source.descriptor.fileDescriptor) }.getOrNull()
                 ExportMetadata.from(exif, options.keepCapture, options.keepLocation)

@@ -20,14 +20,15 @@ internal class ExportCoordinator private constructor(context: Context) {
     private val gate = Mutex()
     private var recovered = false
 
-    inner class Task internal constructor(val request: ExportFrameRequest, private val verify: () -> Unit) {
+    inner class Task internal constructor(val request: ExportFrameRequest, private val verify: () -> Unit,
+        private val recordReceipt: Boolean = true) {
         private var state = ExportJobStore.State.QUEUED
         private var destination: String? = null
 
         fun phase(next: ExportJobStore.State) {
             check(state !in setOf(ExportJobStore.State.SUCCEEDED, ExportJobStore.State.FAILED, ExportJobStore.State.CANCELLED))
             check(next.ordinal >= state.ordinal)
-            state = next; store.write(request, next, destination)
+            state = next; if (recordReceipt) store.write(request, next, destination)
         }
 
         fun publishing(value: String) { destination = value; phase(ExportJobStore.State.PUBLISHING) }
@@ -43,13 +44,13 @@ internal class ExportCoordinator private constructor(context: Context) {
         internal fun failed(failure: Throwable) {
             if (state == ExportJobStore.State.SUCCEEDED) return
             val cancelled = failure is kotlinx.coroutines.CancellationException || failure.message.orEmpty().contains("cancel", true)
-            store.write(request, if (cancelled) ExportJobStore.State.CANCELLED else ExportJobStore.State.FAILED, destination,
+            if (recordReceipt) store.write(request, if (cancelled) ExportJobStore.State.CANCELLED else ExportJobStore.State.FAILED, destination,
                 "${failure.javaClass.simpleName}: ${failure.message}")
         }
     }
 
     suspend fun <T> run(uri: Uri, name: String, edit: EditSnapshot, options: ExportOptions,
-                        check: () -> Unit, block: suspend (Task, ExportSourceSnapshot) -> T): T = gate.withLock {
+                        check: () -> Unit, recordReceipt: Boolean = true, block: suspend (Task, ExportSourceSnapshot) -> T): T = gate.withLock {
         withContext(Dispatchers.IO) { if (!recovered) { store.recover(); recovered = true } }
         check()
         var staged: ExportSourceSnapshot? = null
@@ -58,8 +59,8 @@ internal class ExportCoordinator private constructor(context: Context) {
             val source = requireNotNull(staged)
             val request = ExportFrameRequest(UUID.randomUUID().toString(), source.sha256, name.take(512),
                 RawDecoder.isRaw(app, uri, name), edit, options, RawDecoder.decoderIdentity, EngineClient.buildInfo())
-            val task = Task(request) { source.verifyOriginal(app, uri, options.keepLocation, check) }
-            withContext(Dispatchers.IO) { store.write(request, ExportJobStore.State.QUEUED); task.phase(ExportJobStore.State.PREPARING) }
+            val task = Task(request, { source.verifyOriginal(app, uri, options.keepLocation, check) }, recordReceipt)
+            withContext(Dispatchers.IO) { if (recordReceipt) store.write(request, ExportJobStore.State.QUEUED); task.phase(ExportJobStore.State.PREPARING) }
             try { block(task, source) }
             catch (failure: Throwable) {
                 withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { task.failed(failure) }

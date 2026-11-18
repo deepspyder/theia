@@ -194,6 +194,8 @@ internal fun ExportScreen(vm: EditorViewModel, modifier: Modifier = Modifier, on
                     modifier = Modifier.weight(1f),
                 ) { activeQuickAction = "preview"; vm.previewTier() }
             }
+            TextButton(onClick = vm::openFullDetail, enabled = vm.hasPhoto && !processing,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("原尺寸细节 · 100%") }
             if (batch && selectedCount == 0) Text("请选择至少一张照片", fontSize = 11.sp, lineHeight = 16.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
             Spacer(Modifier.height(24.dp))

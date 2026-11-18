@@ -89,7 +89,7 @@ internal class ExportOptionsBatchAudit(private val test: Instrumentation) {
             }
             await { !vm.isExporting && !vm.busy }
             check(vm.errorMessage == null) { vm.errorMessage.orEmpty() }
-            check(vm.lastResult?.width == 117 && vm.lastResult?.height == 79) { "Custom soft proof ignored final sizing" }
+            check(vm.rendered?.width == 117 && vm.rendered?.height == 79) { "Custom soft proof ignored final sizing" }
             check(media() == afterBatch) { "Soft proof published a file" }
             main {
                 vm.exportCustomSize = ExportSize(ExportSize.Kind.SHORT_EDGE, 79.0)

@@ -164,6 +164,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (!busy && !isExporting && !isBatchExporting && !isApplyingEdits) saveCurrentSidecar()
     }
     private val sessionPersistence by lazy { EditSessionPersistence(app, viewModelScope) }
+    internal val detail = DetailController(viewModelScope)
+    private var preparingDetail = false
     private var workbenchChanged = false
 
     private fun persistWorkbench() {
@@ -1065,6 +1067,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // Layer 2 调色只重转换缓存的渲染结果，不触发引擎重渲染。
     fun scheduleGrade(commit: Boolean = true) {
+        if (detail.opened && !preparingDetail) detail.close()
         if (isApplyingEdits) return
         if (!hasPhoto || isExporting || isBatchExporting) return
         if (commit && !recordHistory()) return
@@ -1434,6 +1437,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun scheduleRender() = scheduleRender(immediate = false)
 
     private fun scheduleRender(immediate: Boolean) {
+        if (detail.opened && !preparingDetail) detail.close()
         if (isApplyingEdits) return
         if (isExporting || isBatchExporting) return
         if (!recordHistory()) return
@@ -2018,6 +2022,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Invalidate before changing identity; cancellation alone cannot stop synchronous native work. */
     private fun invalidatePhotoWork(): Long {
+        detail.close()
         neutralPick.close()
         cameraAsShot = null
         wheelStart?.let {
@@ -2667,56 +2672,99 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // 软打样：按导出尺寸/色彩空间重渲染并显示，不保存文件。
-    fun softProof() {
-        val outputCs = captureExportOptions().renderColorSpace
-        val previewLongEdge = if (exportCustomSize != null) 0 else if (exportRes <= 0) 3400 else exportRes.coerceAtMost(3400)
-        runExportAction("软打样", previewLongEdge, outputCs) { e, editParams, photo, revision, options ->
-            if (!editParams.finishedCrop.isFull) {
-                var proof: Bitmap? = null
+    fun softProof() = prepareFinishedView(false)
+
+    internal fun openFullDetail() = prepareFinishedView(true)
+
+    internal fun closeFullDetail() {
+        detail.close()
+        if (preparingDetail) cancelRender()
+    }
+
+    /** Render one immutable finished output; visible tiles never sample the small interactive preview. */
+    private fun prepareFinishedView(detailMode: Boolean) {
+        val e = engine ?: return
+        val uri = currentUri ?: return
+        if (!hasPhoto || busy || isExporting || isBatchExporting) return
+        val edit = EditSnapshot.capture(params)
+        val frozen = edit.toParams()
+        if (frozen.unreadableColorWheels != null || frozen.unreadableChannelMixer != null ||
+            frozen.unreadableColorAdjustments != null || frozen.unreadableToneCurves != null ||
+            frozen.unreadableSceneCurves != null && !frozen.filmOff) {
+            fail("当前编辑包含无法读取的调整，请先复位该项后重试")
+            return
+        }
+        val options = captureExportOptions().let { if (detailMode) it.copy(resolution = 0, customSize = null) else it }
+        val displaySpace = if (app.resources.configuration.isScreenWideColorGamut) "Display P3" else "sRGB"
+        val generation = photoGeneration
+        val interrupted = pendingPreviewWork()
+        val lease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
+            catch (error: Exception) { fail("无法启动细节处理: ${error.message}"); return }
+        if (detailMode) detail.begin()
+        preparingDetail = detailMode
+        isExporting = true; exportCancelRequested = false; isExportCommitCompleted = false
+        renderProgress = 0f; renderStage = if (detailMode) "准备原尺寸细节" else "准备文件色彩打样"
+        viewModelScope.launch {
+            engineTasks.run("finished-view") {
+                var made: com.spektralab.android.data.preview.FullDetailSession? = null
+                var restore = false
                 try {
-                    val graded = withContext(engineDispatcher) {
-                        e.renderExportOnce().use { full ->
-                            val finished = com.spektralab.android.data.export.FinishedRgba16Source.wrap(full, grade(editParams), editParams.finishedCrop, ::checkExportCancellation)
-                            val sized = com.spektralab.android.data.export.SizedRgba16Source.wrap(finished, options.customSize, ::checkExportCancellation)
-                            val preview = com.spektralab.android.data.export.SizedRgba16Source.wrap(sized,
-                                ExportSize(ExportSize.Kind.LONG_EDGE, 3400.0), ::checkExportCancellation)
-                            val pixels = ShortArray(preview.width * preview.height * 4)
-                            preview.readRows(0, preview.height, pixels)
-                            ColorPipeline.applyGradeToBitmap(pixels, preview.width, preview.height,
-                                com.spektralab.android.engine.EditorGrade.identity, outputCs, ::checkExportCancellation)
-                        }
+                    com.spektralab.android.data.export.PhotoExportPipeline(app).write(
+                        uri, queryDisplayName(uri) ?: "photo", edit, options, ::checkExportCancellation,
+                        beforeNative = { withContext(engineDispatcher) { restore = true; e.park(); RenderAdmission.check(app) } },
+                        progress = { stage, percent -> renderStage = exportStageLabel(stage); renderProgress = percent },
+                        recordReceipt = false,
+                    ) { pixels, _, task ->
+                        made = com.spektralab.android.data.preview.FullDetailSession.create(app, pixels,
+                            if (pixels.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(frozen),
+                            options.outputColorSpace, task.request.toJson(), ::checkExportCancellation,
+                            quantize8Bit = options.format != "TIFF")
+                        task.verifySource()
+                        "internal-finished-view"
                     }
-                    proof = graded.first
                     checkExportCancellation()
-                    withContext(Dispatchers.Main.immediate) {
-                        if (photo == photoGeneration && revision == renderGeneration) {
-                            rendered = graded.first; histogram = graded.second; proof = null
-                            rememberDevelopedPreview(graded.first)
-                        }
+                    check(generation == photoGeneration && currentUri == uri && EditSnapshot.capture(params) == edit) { "Preview source or edits changed" }
+                    val session = checkNotNull(made)
+                    if (detailMode) {
+                        if (detail.opened) { detail.ready(session); made = null }
+                        append("原尺寸细节: ${session.width}×${session.height} · ${session.colorSpace} · 文件像素100%")
+                    } else {
+                        var bitmap: Bitmap? = null
+                        try {
+                            val shown = withContext(Dispatchers.Default) {
+                                val task = currentCoroutineContext()
+                                session.preview(3400, displaySpace) { task.ensureActive(); checkExportCancellation() }
+                            }.also { bitmap = it }
+                            val counts = withContext(Dispatchers.Default) { ColorPipeline.computeHistogram(shown) }
+                            checkExportCancellation()
+                            if (generation == photoGeneration && currentUri == uri && EditSnapshot.capture(params) == edit) {
+                                rendered = shown; histogram = counts; bitmap = null
+                                rememberDevelopedPreview(shown)
+                            }
+                            append("软打样: ${shown.width}×${shown.height} · 文件 ${session.colorSpace} → 显示 $displaySpace")
+                        } finally { bitmap?.recycle() }
                     }
-                    append("软打样: ${graded.first.width}×${graded.first.height}")
-                } finally { proof?.recycle() }
-                return@runExportAction
-            }
-            val result = withContext(engineDispatcher) {
-                if (options.customSize == null) e.render("full")
-                else {
-                    val started = android.os.SystemClock.elapsedRealtime()
-                    e.renderExportOnce().use { full ->
-                        val sized = com.spektralab.android.data.export.SizedRgba16Source.wrap(full, options.customSize, ::checkExportCancellation)
-                        val preview = com.spektralab.android.data.export.SizedRgba16Source.wrap(sized,
-                            ExportSize(ExportSize.Kind.LONG_EDGE, 3400.0), ::checkExportCancellation)
-                        val pixels = ShortArray(preview.width * preview.height * 4)
-                        preview.readRows(0, preview.height, pixels)
-                        SpkResult(pixels, preview.width, preview.height, preview.width,
-                            (android.os.SystemClock.elapsedRealtime() - started).toDouble(), false, false, "")
+                } catch (_: ExportCancelled) { if (detailMode) detail.close(); append("细节/打样已取消") }
+                catch (cancelled: CancellationException) { if (detailMode) detail.close(); throw cancelled }
+                catch (_: OutOfMemoryError) { if (detailMode) detail.failed("内存不足，请关闭后重试"); else fail("打样内存不足，请重试") }
+                catch (error: Exception) { if (detailMode) detail.failed(error.message ?: "细节处理失败"); else fail(error.message ?: "打样失败") }
+                finally {
+                    withContext(NonCancellable + Dispatchers.IO) { made?.close() }
+                    if (restore && previewLinear != null) {
+                        try {
+                            withContext(NonCancellable) { lease.releaseDevice() }
+                            withContext(NonCancellable + engineDispatcher) {
+                                val linear = checkNotNull(previewLinear)
+                                e.open(linear, previewW, previewH, 3, params.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
+                            }
+                        } catch (error: Exception) { append("恢复编辑预览: ${error.message}") }
                     }
+                    preparingDetail = false; isExporting = false; renderProgress = null; renderStage = ""
+                    exportCancelRequested = false; isExportCommitCompleted = false
+                    if (!detailMode) resumePreview(interrupted)
                 }
             }
-            checkExportCancellation()
-            updateResult(result, outputCs, photo, revision, editParams)
-            append("软打样: ${result.width}×${result.height}  ${result.elapsedMs}ms")
-        }
+        }.invokeOnCompletion { lease.close() }
     }
 
     // 高清预览：通过原片解码器直接限制到 3400px，避免 RAW 全尺寸 managed float buffer。

@@ -1,7 +1,8 @@
 {
   "date": "2026-11-19",
-  "batch": "R08专业SDR输出完成：四空间真实变换/ICC、JPEG配置替换、PNG iCCP、TIFF16可选Deflate及设备探测HEIF/主图ICC接通。435条执行记录、两次207/207总回归、28原生截图独立ship；原尺寸NEF8种输出完整核对。R01—R08共8/26完成，下一项R09原尺寸细节瓦片与软打样。每项测试后英文commit并正常push origin/master。",
+  "batch": "R09原尺寸细节与文件打样完成：冻结U16成片/匿名描述符、可见512px F16瓦片/64MiB持有预算、100%物理像素坐标、最新请求发布、后台回收及文件/显示颜色分离；220执行行含207/207，20原生截图fresh ship。R01—R09共9/26完成，下一项R10持久任务安全重试与全入口宿主化。按用户授权逐项测试、英文commit并正常push。",
   "validation": [
+    "2026-11-19 R09：113520独立坐标点、56696832 TIFF16→F16通道逐位一致；四文件/两显示空间及暗角、原尺寸NEF/冻结编辑/不发布/快速请求/取消/回收通过。50MP与65535px宽图合成存储夹具及64MiB瓦片预算通过。220执行行含207总回归、4配置20原生截图fresh ship/documenter；15工具测试，Lint0Error/78Warning/21Hint。202 native/engine条目与R08全部相同；Release58756398字节/1eda4f334b7bc4803eca561ff6c5dc0ba586f5f1a7fe195531b8bede57cd6443，原签名/16KiB。API37 x86_64，首次显影峰值和物理P3/ARM不作完成声明；见docs/features/r09-full-detail.md。",
     "2026-11-19 R08：32编码专项+48应用组合+7 NEF原尺寸+HEIF原尺寸补验，完整像素/ICC/元数据/位深及Deflate逐样本无损通过；四空间独立矩阵/TRC及LittleCMS核对，Adobe完整NEF最大差19/65535，默认sRGB差0。435执行行含两次207/207，4配置28原生截图fresh ship/documenter；15工具测试，Debug/AndroidTest/Release/Lint0Error/76Warning/21Hint。Release58723640字节/4315a04846303dd9cff25d21afe63b534444bacb46e2042e56d7e77cd1c3b27a，原签名/16KiB通过。保留SDR工作色域、HEIF30s drain/API26运行与ARM屏幕限制，详见docs/features/r08-professional-output.md和.tmp/r08-output/verification.json。",
     "2026-11-19 R07：8组320024线性Vulkan像素普通/窗口逐位一致，CPU参考最大相对误差1.54e-6；62489胶片像素独立线性源参考最大差1U16，曝光补偿/自动测光/medium/新会话宽容度直方图合同通过。18次PNG/WebP/JPEG原尺寸+限额三格式实际输出、24.5MP NEF三格式/完整PNG摘要、RAW WB重解码、虚拟副本批量/灯台、历史重启和4配置32真实照片截图通过；总入口207/207。15工具测试、Lint零Error/74既有Warning/21Hint；主SO两ABI及3新shader变化，203旧运行条目保持。界面独立五节review为ship（消息已交付，最终传送随后provider403），文档更新editing-feedback，详见docs/features/r07-decode-scene-curves.md与.tmp/r07-scene-curves/verification.json。",
     "2026-11-18 R06：1200相机射线点、29877调色后裁切像素、78432原生几何像素；sRGB/P3裁后显示/直方图与完整画面参考一致。8组R05 U16逐位保持；PNG/WebP/JPEG EXIF1/3/6/8共36次实际三格式/三自定义限额输出、TIFF完整U16、原尺寸6064×4040 NEF及跨缓存完整PNG摘要一致。虚拟副本批量及两套1600px灯台与独立调色后裁切参考一致；历史重启/redo、取消/重绑及4配置真实照片界面通过。29组244条执行记录、总入口207/207、28原生截图；短横屏裁切侧栏复核resolved/ship，详细汇总见docs/features/r06-scene-geometry.md和.tmp/r06-geometry/verification.json。仍仅API37 x86_64，不宣称ARM驱动或手机性能验收。",
@@ -298,10 +299,11 @@
         "生产单张/批量及同空间多格式缓存接入，原图/实际资源/APK指纹与保守参数键",
         "24MP真实RAW全尺寸首次/命中输出哈希一致；读/写损坏与失效回归通过",
         "R02自定请求复用原尺寸成片缓存，再按当前目标限额缩小；命名不进入像素身份。实际连续三限额/三容器输出与独立面积参考通过，未新增源/负片阶段缓存。",
-        "R05增加1024/1600/2048编辑预览预算与0/64…1024MiB成片磁盘缓存，活动租约/动态裁减/清理确认/真实IO故障保护和设置页接通。预览尺寸不改变已有编辑与原尺寸输出，下一次打开生效；原尺寸细节瓦片/缓存全体系仍未完成。"
+        "R05增加1024/1600/2048编辑预览预算与0/64…1024MiB成片磁盘缓存，活动租约/动态裁减/清理确认/真实IO故障保护和设置页接通。预览尺寸不改变已有编辑与原尺寸输出，下一次打开生效；原尺寸细节瓦片/缓存全体系仍未完成。",
+        "R09增加冻结真实全尺寸成片/U16匿名文件和可见512px瓦片索引/复用，64MiB F16驻留、50MP/超宽有界存储、取消/关闭FD清理及最新请求发布通过；不宣称全缓存体系或首次显影峰值完成。"
       ],
       "remaining": [
-        "显式随机seed合同与更多来源/任务覆盖；tile索引与可见纹理策略；设备预算/收益进一步校准"
+        "更多来源/任务和源/负片阶段缓存；设备预算/收益校准，持久细节磁盘索引与跨会话再用按需求后续。"
       ],
       "sources": [
         "app/src/main/java/com/spektralab/android/core/model/RenderCacheIdentity.kt",
@@ -619,12 +621,22 @@
     {
       "id": "F11",
       "name": "细节瓦片与软打样",
-      "status": "pending",
-      "evidence": [],
-      "remaining": [
-        "可见 tile 读取与驻留；正确色彩变换；旧结果防覆盖；全尺寸容量测量"
+      "status": "in_progress",
+      "evidence": [
+        "R09软件范围完成：冻结完整成片U16描述符、512px可见瓦片/F16明确显示空间、64MiB持有预算、100%屏幕像素/缩放锚点、旧结果防覆盖/取消/切图回收、文件颜色与显示颜色分离打样；全像素参考和207总回归/20截图ship。"
       ],
-      "sources": []
+      "remaining": [
+        "真实ARM/P3屏幕/50MP RAW连续负载和设备预算校准；首次全尺寸显影峰值继续F03/R10。非打印机ICC或JPEG/HEIF有损压缩模拟，旧SDR工作空间限制保留。"
+      ],
+      "sources": [
+        "app/src/main/java/com/spektralab/android/core/model/DetailViewport.kt",
+        "app/src/main/java/com/spektralab/android/data/preview/FullDetailSession.kt",
+        "app/src/main/java/com/spektralab/android/feature/editor/DetailController.kt",
+        "app/src/main/java/com/spektralab/android/feature/editor/ui/DetailWorkspace.kt",
+        "app/src/androidTest/java/com/spektralab/android/FullDetailAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/FullDetailEditorAudit.kt",
+        "docs/features/r09-full-detail.md"
+      ]
     },
     {
       "id": "F12",
@@ -803,10 +815,10 @@
     }
   ],
   "next": [
-    "按docs/upstream-2.4.2-android-roadmap.md连续执行：R01—R08已交付，下一项R09原尺寸细节瓦片与软打样，冻结编辑/可见矩形/驻留预算及文件/显示颜色分离。每项测试后英文commit并push origin/master；余18个R工作包与F未完范围保持。",
+    "按docs/upstream-2.4.2-android-roadmap.md连续执行：R01—R09已交付，下一项R10持久任务安全重试与全入口宿主化；先稳定源身份/授权、队列恢复/明确失败重试与提交去重，再DI/灯台/编码迁移和预算。每项测试后英文commit并push origin/master；余17个R工作包与F未完范围保持。",
     "小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。 R03同步持久化主线程P95约19.4ms（本轮模拟器样本），ARM持续编辑与尾延迟仍待验，不作60fps保证。",
     "R10及F01/F02/F03/F16继续跨节点峰值预算、阶段缓存、全入口host、持久源身份/授权、完整中断/满盘/取消矩阵与安全重试。保留精确suspend/resume和ARM连续负载验收。",
-    "R09接完整原尺寸细节和准确软打样；R08专业SDR输出、R07独立Decode场景曲线已完成。F13增强场景统计及F17非中性成片工作空间与PC独立对照继续。",
+    "R07/R08/R09独立Decode曲线、专业SDR输出和原尺寸细节/文件色彩打样已完成；真实ARM/P3显示、F13增强统计、F17非中性工作空间与PC独立对照继续。",
     "R11半格双源项目按稳定资产/持久历史/两级几何与任务合同接入，随后R12双重曝光；保留F10原范围，单张135_half与灯台拼图不冒充该能力。",
     "R13独立冲印/contrast mask与R14–R18局部层/画笔/scene层/自动主体/水印分开交付；自动主体先调查本地模型与许可，不能直接移植Apple Vision。",
     "F07/F08/F09补长期URI、云端/缺源、图库批量整理、外部加入持久灯台、更高像素/分带导出；原有自由画布及首批正式输出保持。",

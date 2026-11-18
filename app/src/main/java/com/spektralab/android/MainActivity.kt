@@ -64,4 +64,14 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
         outState.putString("currentUri", vm.currentUri?.toString())
     }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) vm.closeFullDetail()
+        super.onStop()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) vm.closeFullDetail()
+    }
 }

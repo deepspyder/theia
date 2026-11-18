@@ -160,7 +160,9 @@ internal fun EditorScreen(
     Box(Modifier.fillMaxSize()) {
         // A phone held sideways is wide but too short for all five rail destinations.
         val expanded = windowLayout.expanded
-        if (adjustmentFullscreen) {
+        if (vm.detail.opened) {
+            DetailWorkspace(vm, Modifier.fillMaxSize())
+        } else if (adjustmentFullscreen) {
             AdjustmentFullscreen(
                 mode = selectedTab.label,
                 fileName = vm.photoInfo.firstOrNull { it.first == "文件名" }?.second ?: "当前照片",
@@ -370,7 +372,7 @@ internal fun EditorScreen(
             AboutScreen(onBack = { aboutVisible = false }, modifier = Modifier.fillMaxSize().zIndex(5f))
         }
 
-        if ((vm.busy || vm.isExporting || vm.isBatchExporting) && selectedTab !in setOf(EditorTab.Export, EditorTab.Gallery)) {
+        if (!vm.detail.opened && (vm.busy || vm.isExporting || vm.isBatchExporting) && selectedTab !in setOf(EditorTab.Export, EditorTab.Gallery)) {
             Box(
                 Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f))
                     .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }

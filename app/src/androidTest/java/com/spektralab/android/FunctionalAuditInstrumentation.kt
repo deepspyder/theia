@@ -145,7 +145,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
         historyStorageOnly = audit == "history-storage"
         historyProcessPhase = audit?.removePrefix("history-process-")?.takeIf { it in setOf("seed", "verify", "branch") }
-        exportOptionsMode = audit?.takeIf { it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
+        exportOptionsMode = audit?.takeIf { it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
         legacyUiOnly = audit == "legacy-ui"
         exportMatrixPart = arguments?.getString("matrixPart")?.takeIf { audit == "export-matrix" }
@@ -371,6 +371,11 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         exportOptionsMode?.let { mode ->
             case(mode) {
                 when (mode) {
+                    "detail-core" -> FullDetailAudit(this,output).core()
+                    "detail-large" -> FullDetailAudit(this,output).large()
+                    "detail-editor" -> FullDetailEditorAudit(this,output).run(false,false)
+                    "detail-raw" -> FullDetailEditorAudit(this,output).run(true,false)
+                    "detail-layout" -> FullDetailEditorAudit(this,output).run(false,true)
                     "professional-output" -> ProfessionalOutputAudit(this, output).run()
                     "professional-output-application" -> ProfessionalOutputApplicationAudit(this, output).run(false)
                     "professional-output-raw" -> ProfessionalOutputApplicationAudit(this, output).run(true)
@@ -1244,7 +1249,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         )?.use { it.count } ?: 0
         runOnMainSync { vm.softProof() }
         awaitAction("soft proof")
-        val proof = vm.lastResult ?: error("soft proof produced no preview")
+        val proof = vm.rendered ?: error("soft proof produced no preview")
         check(max(proof.width, proof.height) == 1280) { "soft proof ignored the selected 1280px export size: ${proof.width}x${proof.height}" }
         val galleryAfterProof = targetContext.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -3074,11 +3079,19 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             changed{vm.resetAll()};runOnMainSync{vm.dismissError();vm.exportFormat="TIFF";vm.exportColorSpace="Display P3";vm.export()}
             await{!vm.isExporting};check(vm.errorMessage==null){vm.errorMessage!!};vm.log.takeLast(300)
         }
-        case("editor.softproof"){val old=vm.lastResult;runOnMainSync{vm.dismissError();vm.softProof()};await{!vm.isExporting};check(vm.lastResult!==old);check(vm.errorMessage==null){vm.errorMessage!!};"proof rendered"}
+        case("editor.softproof"){val old=vm.rendered;runOnMainSync{vm.dismissError();vm.softProof()};await{!vm.isExporting};check(vm.rendered!==old);check(vm.errorMessage==null){vm.errorMessage!!};"Frozen file-space proof rendered; interactive raw preview retained separately"}
         case("editor.softproof_p3_display_transform") {
-            val raw=vm.lastResult!!.toArgb();val bmp=vm.rendered!!;val shown=IntArray(bmp.width*bmp.height)
-            bmp.getPixels(shown,0,bmp.width,0,0,bmp.width,bmp.height)
-            check(!raw.contentEquals(shown)){"P3 was displayed as sRGB without conversion"};"P3 values transformed to sRGB display"
+            val bmp=vm.rendered!!
+            check(bmp.config==Bitmap.Config.RGBA_F16)
+            val target=android.graphics.ColorSpace.get(if(targetContext.resources.configuration.isScreenWideColorGamut)
+                android.graphics.ColorSpace.Named.DISPLAY_P3 else android.graphics.ColorSpace.Named.SRGB)
+            // Android normalizes F16 sRGB to Extended sRGB. The SDR matrix/TRC must still agree.
+            val connector=android.graphics.ColorSpace.connect(checkNotNull(bmp.colorSpace),target)
+            for(r in listOf(0f,.18f,1f))for(g in listOf(0f,.5f,1f))for(b in listOf(0f,.7f,1f)) {
+                val mapped=connector.transform(floatArrayOf(r,g,b))
+                check(kotlin.math.abs(mapped[0]-r)<.0001f && kotlin.math.abs(mapped[1]-g)<.0001f && kotlin.math.abs(mapped[2]-b)<.0001f) {"Unexpected proof tag: ${bmp.colorSpace}"}
+            }
+            "File proof converted to explicitly tagged F16 display space; full numerical parity is covered by detail-core/detail-editor"
         }
         case("editor.preview"){val old=vm.lastResult;runOnMainSync{vm.previewTier()};await{!vm.isExporting};check(vm.lastResult!==old);"preview rendered"}
         case("editor.recipe_roundtrip") {val recipe=ExportRecipe("Audit", "JPEG",2048,"sRGB",87);runOnMainSync{vm.applyRecipe(recipe)};check(vm.jpegQuality==87&&vm.exportRes==2048);"recipe applied"}
