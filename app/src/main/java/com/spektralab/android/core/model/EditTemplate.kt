@@ -8,7 +8,7 @@ import org.json.JSONObject
 /** Explicit ownership keeps copy, preview and presets on the same field contract. */
 enum class EditGroup(val key: String, val fields: Set<String>) {
     MATERIAL("material", setOf("film_stock", "print_stock")),
-    DECODE("decode", setOf("camera_wb_kelvin", "camera_wb_tint", "camera_wb_custom", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")),
+    DECODE("decode", setOf("scene_curves", "camera_wb_kelvin", "camera_wb_tint", "camera_wb_custom", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")),
     FILM("film", setOf("film_off", "exposure_compensation_ev", "auto_exposure_method", "auto_exposure", "film_format_mm",
         "scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
         "scene_latitude_shadow_knee", "scene_latitude_shadow_room", "scene_latitude_rolloff", "scene_latitude_max_lift",
@@ -53,6 +53,7 @@ class EditTemplate private constructor(val groups: Set<EditGroup>, private val v
         for (group in groups) {
             if (group == EditGroup.DECODE && !raw) {
                 notices += EditTransferNotice.RAW_ONLY
+                if (values.has("scene_curves")) result.put("scene_curves", values.get("scene_curves")) else result.remove("scene_curves")
                 continue
             }
             for (key in group.fields) {
@@ -80,7 +81,7 @@ class EditTemplate private constructor(val groups: Set<EditGroup>, private val v
     }
 
     companion object {
-        private val optional = setOf("film_off", "perspective_vertical", "perspective_horizontal", "finished_crop", "tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
+        private val optional = setOf("scene_curves", "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop", "tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
             "halation_model_version", "halation_headroom_ev", "camera_wb_temperature_as_shot", "camera_wb_tint_as_shot")
 
         fun capture(params: EditorParams, groups: Set<EditGroup>): EditTemplate {
@@ -163,7 +164,7 @@ class EditTemplate private constructor(val groups: Set<EditGroup>, private val v
             val parsed = EditorParams.fromJson(values)
             if (EditGroup.GEOMETRY in groups) require(parsed.cropW > 0f && parsed.cropH > 0f &&
                 parsed.cropX + parsed.cropW <= 1.00001f && parsed.cropY + parsed.cropH <= 1.00001f)
-            require(parsed.unreadableToneCurves == null && parsed.unreadableColorAdjustments == null &&
+            require(parsed.unreadableSceneCurves == null && parsed.unreadableToneCurves == null && parsed.unreadableColorAdjustments == null &&
                 parsed.unreadableChannelMixer == null && parsed.unreadableColorWheels == null)
             return EditTemplate(groups.toSet(), values.toString())
         }

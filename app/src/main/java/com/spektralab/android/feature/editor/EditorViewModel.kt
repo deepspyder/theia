@@ -127,7 +127,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     internal fun beginNeutralPick(target: NeutralWhiteBalance.Target) {
         if (!canPickNeutral || target == NeutralWhiteBalance.Target.DECODE && (!currentIsRaw || currentUri == null)) return
-        finishCurveEdit(cancel = true); finishColorEdit(cancel = true); finishMixerEdit(cancel = true); finishWheelEdit(cancel = true)
+        finishSceneCurveEdit(cancel = true); finishCurveEdit(cancel = true); finishColorEdit(cancel = true); finishMixerEdit(cancel = true); finishWheelEdit(cancel = true)
         val uri = currentUri
         val photo = photoGeneration
         val frame = lastResult
@@ -515,7 +515,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // 重置全部编辑参数到默认（保留当前照片）。
     fun resetAll() {
         if (isApplyingEdits) return
-        finishCurveEdit(cancel = true)
+        finishSceneCurveEdit(cancel = true); finishCurveEdit(cancel = true)
         finishColorEdit(cancel = true)
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
@@ -527,8 +527,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun historyKey(uri: Uri? = currentUri): String = uri?.toString() ?: "session"
     /** A live gesture is preview-only until release, even if another operation saves. */
     private fun committedParams(): EditorParams {
-        if (curveStart == null && colorStart == null && mixerStart == null && wheelStart == null) return params
+        if (sceneCurveStart == null && curveStart == null && colorStart == null && mixerStart == null && wheelStart == null) return params
         return params.copy().apply {
+            sceneCurveStart?.let {
+                sceneCurves = it
+                unreadableSceneCurves = sceneCurveStartUnreadable
+            }
             curveStart?.let {
                 toneCurves = it
                 unreadableToneCurves = curveStartUnreadable
@@ -619,7 +623,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun restoreHistory(redo: Boolean) {
         if (isApplyingEdits || busy || isExporting || isBatchExporting) return
-        finishCurveEdit(cancel = true)
+        finishSceneCurveEdit(cancel = true); finishCurveEdit(cancel = true)
         finishColorEdit(cancel = true)
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
@@ -659,7 +663,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 previous.cameraWbTemperatureAsShot != params.cameraWbTemperatureAsShot || previous.cameraWbTintAsShot != params.cameraWbTintAsShot)) {
             scheduleCameraWb()
         }
-        if (previous.deltaJson(previewW, previewH) == params.deltaJson(previewW, previewH) &&
+        if (previous.previewDeltaJson(previewW, previewH) == params.previewDeltaJson(previewW, previewH) &&
             previous.cameraWbCustom == params.cameraWbCustom && previous.cameraWbKelvin == params.cameraWbKelvin &&
             previous.cameraWbTint == params.cameraWbTint && previous.cameraWbTemperatureAsShot == params.cameraWbTemperatureAsShot &&
             previous.cameraWbTintAsShot == params.cameraWbTintAsShot) scheduleGrade()
@@ -730,7 +734,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             editTransferError = app.getString(R.string.edit_targets_changed)
             return
         }
-        finishCurveEdit(cancel = true)
+        finishSceneCurveEdit(cancel = true); finishCurveEdit(cancel = true)
         finishColorEdit(cancel = true)
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
@@ -772,7 +776,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                             previous.cameraWbTemperatureAsShot != params.cameraWbTemperatureAsShot || previous.cameraWbTintAsShot != params.cameraWbTintAsShot
                         when {
                             currentIsRaw && cameraChanged -> scheduleCameraWb()
-                            previous.deltaJson(previewW, previewH) == params.deltaJson(previewW, previewH) -> scheduleGrade(commit = false)
+                            previous.previewDeltaJson(previewW, previewH) == params.previewDeltaJson(previewW, previewH) -> scheduleGrade(commit = false)
                             else -> scheduleRender()
                         }
                     } finally { suppressHistory = false }
@@ -1189,6 +1193,35 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         colorStartUnreadable = null
     }
 
+    private var sceneCurveStart: com.spektralab.android.core.color.SceneCurves? = null
+    private var sceneCurveStartUnreadable: String? = null
+
+    fun beginSceneCurveEdit() {
+        if (sceneCurveStart == null && !params.filmOff && !isExporting && !isBatchExporting) {
+            sceneCurveStart = params.sceneCurves
+            sceneCurveStartUnreadable = params.unreadableSceneCurves
+            lastHistoryKey = null
+        }
+    }
+
+    fun changeSceneCurves(curves: com.spektralab.android.core.color.ToneCurves) {
+        if (params.filmOff || isExporting || isBatchExporting || isApplyingEdits) return
+        params.sceneCurves = com.spektralab.android.core.color.SceneCurves(curves)
+        params.unreadableSceneCurves = null
+        scheduleRender()
+    }
+
+    fun finishSceneCurveEdit(cancel: Boolean = false) {
+        val start = sceneCurveStart ?: return
+        sceneCurveStart = null
+        if (cancel) {
+            params.sceneCurves = start
+            params.unreadableSceneCurves = sceneCurveStartUnreadable
+        }
+        sceneCurveStartUnreadable = null
+        scheduleRender()
+    }
+
     private var curveStartUnreadable: String? = null
     private var curveStart: com.spektralab.android.core.color.ToneCurves? = null
 
@@ -1412,7 +1445,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 val photo = photoGeneration
                 val uri = currentUri
                 val editParams = EditSnapshot.capture(params).toParams()
-                val delta = editParams.deltaJson(previewW, previewH)
+                val delta = editParams.previewDeltaJson(previewW, previewH)
                 stockPreviewJob?.cancel()
                 wbJob?.cancel()
                 gradeGeneration++
@@ -1422,7 +1455,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         if (e.requiresSourceReopen(delta)) {
                             val pixels = checkNotNull(previewLinear) { "Source pixels unavailable" }
                             e.open(pixels, previewW, previewH, 3,
-                                editParams.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
+                                editParams.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
                         } else e.setChangedParams(delta)
                         // UI post edits may be newer than this debounced native request. Keep saves
                         // ordered with those edits instead of writing the older render snapshot.
@@ -1557,7 +1590,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 val reply = engineTasks.onEngine(kind) {
                     if (photo != photoGeneration || uri != currentUri) return@onEngine null
                     // A slider's latest request may still be queued when analysis is tapped.
-                    target.setChangedParams(snapshot.toParams().deltaJson(width, height))
+                    target.setChangedParams(snapshot.toParams().previewDeltaJson(width, height))
                     target.query()
                 } ?: return@launch
                 if (photo == photoGeneration && uri == currentUri && !isExporting && !isBatchExporting &&
@@ -1621,7 +1654,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         frame.width,
                         frame.height,
                         3,
-                        editParams.openJson(frame.width, frame.height, inputColorSpace = frame.inputColorSpace),
+                        editParams.previewOpenJson(frame.width, frame.height, inputColorSpace = frame.inputColorSpace),
                     )
                     if (frame.photo != photoGeneration || frame.revision != renderGeneration) return@onEngine
                     val r = targetEngine.render("live")
@@ -1746,6 +1779,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (params.unreadableColorWheels != null) { fail(app.getString(com.spektralab.android.R.string.wheels_unsupported)); return }
         if (params.unreadableChannelMixer != null) { fail(app.getString(com.spektralab.android.R.string.mixer_unsupported)); return }
         if (params.unreadableColorAdjustments != null) { fail(app.getString(com.spektralab.android.R.string.color_unsupported)); return }
+        if (params.unreadableSceneCurves != null && !params.filmOff) { fail(app.getString(R.string.scene_curve_unsupported)); return }
         if (params.unreadableToneCurves != null) { fail(app.getString(com.spektralab.android.R.string.curve_unsupported)); return }
         val interruptedPreview = pendingPreviewWork()
         val uri = currentUri ?: return
@@ -1805,7 +1839,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         try {
                             withContext(NonCancellable) { hostLease.releaseDevice() }
                             withContext(NonCancellable + engineDispatcher) {
-                                e.open(pl, previewW, previewH, 3, params.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
+                                e.open(pl, previewW, previewH, 3, params.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
                                 // Keep the approved frame; rebuild the negative lazily on the next edit.
                             }
                         } catch (_: OutOfMemoryError) {
@@ -1925,7 +1959,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         runCatching {
                             e.closeSession()
                             previewLinear?.let { pl -> e.open(pl, previewW, previewH, 3,
-                                activeParams.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace)) }
+                                activeParams.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace)) }
                             sourceExif = activeUri?.let(::readExif)
                         }.onFailure { android.util.Log.e("TableExport", "Preview session restore failed", it) }
                     }
@@ -1992,6 +2026,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
         colorStart = null
         colorStartUnreadable = null
+        sceneCurveStart?.let { params.sceneCurves = it; params.unreadableSceneCurves = sceneCurveStartUnreadable }
+        sceneCurveStart = null
+        sceneCurveStartUnreadable = null
         curveStart?.let { params.toneCurves = it }
         curveStart = null
         smartApplyJob?.cancel()
@@ -2338,7 +2375,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // 切换前把当前照片的编辑落盘（避免 120ms 去抖未到就切换而丢编辑）。
     private fun saveCurrentSidecar() {
-        finishCurveEdit(cancel = true)
+        finishSceneCurveEdit(cancel = true); finishCurveEdit(cancel = true)
         finishColorEdit(cancel = true)
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
@@ -2422,6 +2459,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         check(photoParams.unreadableColorWheels == null) { app.getString(com.spektralab.android.R.string.wheels_unsupported) }
                         check(photoParams.unreadableChannelMixer == null) { app.getString(com.spektralab.android.R.string.mixer_unsupported) }
                         check(photoParams.unreadableColorAdjustments == null) { app.getString(com.spektralab.android.R.string.color_unsupported) }
+                        check(photoParams.unreadableSceneCurves == null || photoParams.filmOff) { app.getString(R.string.scene_curve_unsupported) }
                         check(photoParams.unreadableToneCurves == null) { app.getString(com.spektralab.android.R.string.curve_unsupported) }
                         val output = com.spektralab.android.data.export.PhotoExportPipeline(app).write(
                             uri, queryDisplayName(uri) ?: "photo", edits.getValue(uri), options,
@@ -2465,7 +2503,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         try {
                             withContext(NonCancellable) { hostLease.releaseDevice() }
                             withContext(Dispatchers.Main.immediate) { params = activeParams }
-                            e.open(pl, previewW, previewH, 3, activeParams.openJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
+                            e.open(pl, previewW, previewH, 3, activeParams.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
                         } catch (_: OutOfMemoryError) {
                             withContext(Dispatchers.Main.immediate) { append("恢复编辑会话时内存不足，请重新打开当前照片") }
                         } catch (ex: Exception) {
@@ -2573,7 +2611,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                                         previewWidth,
                                         previewHeight,
                                         3,
-                                        editParams.openJson(previewWidth, previewHeight, inputColorSpace = previewInputSpace),
+                                        editParams.previewOpenJson(previewWidth, previewHeight, inputColorSpace = previewInputSpace),
                                     )
                                 }
                             }

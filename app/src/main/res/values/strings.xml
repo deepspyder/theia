@@ -122,7 +122,7 @@
     <string name="edit_delete_title">删除这个预设？</string>
     <string name="edit_delete_message">删除“%1$s”不会改变照片上已经应用的调整。</string>
     <string name="edit_group_material">胶片与相纸</string>
-    <string name="edit_group_decode">RAW 解码白平衡</string>
+    <string name="edit_group_decode">解码白平衡与场景曲线</string>
     <string name="edit_group_film">拍摄与胶片效果</string>
     <string name="edit_group_print">印放</string>
     <string name="edit_group_light">光线</string>

@@ -42,6 +42,27 @@ IFD/EXIF/GPS directories without rewriting the 16-bit image or ICC profile.
 Rendered dimensions/orientation come from the output, not the original image.
 Batch export reads each source's metadata separately.
 
+# Decode scene curves
+
+The Decode scene-curve entry reuses the existing CurveEditor interaction and
+Operate layout while keeping its model and render stage independent from the
+finished-image curve. Its controls use a -8 to +8 EV axis, with the selected
+point's input and output shown in EV and the existing point editing, precision,
+reset, undo/redo, cancel, and commit gestures preserved.
+
+The entry is visibly disabled while film simulation is off; saved scene-curve
+data remains intact and becomes active again when film simulation is restored.
+Unknown or invalid future scene-curve data stays preserved and is surfaced as a
+warning rather than being silently applied. Decode and finished-image curve
+edits therefore remain isolated, and switching photos or cancelling an edit
+restores the corresponding uncommitted draft.
+
+On compact and large-font layouts, the Decode graph may be shortened by 48dp
+to keep the EV help text and bottom actions inside the safe area. The finished-
+image curve graph keeps its established dimensions. The same behavior is
+retained in landscape and tablet layouts, with no new visual system or raster
+assets introduced.
+
 Validation uses real injected multi-event crop drags, locked resize, presets,
 cancel/commit, flat-field vignette pixels and TIFF parity, serialization and
 undo/redo, twelve format×capture×GPS combinations, actual engine exports and

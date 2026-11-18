@@ -137,6 +137,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        sceneCurveMode = audit?.takeIf { it.startsWith("scene-curve-") }
         geometryMode = audit?.takeIf { it.startsWith("geometry-") }
         settingsMode = audit?.takeIf { it in setOf("settings-storage", "settings-editor", "settings-ui", "settings-process") }
         neutralMode = audit?.takeIf { it in setOf("neutral-math", "neutral-raw", "neutral-boundaries", "neutral-editor", "neutral-layout", "neutral-process") }
@@ -288,10 +289,23 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var neutralMode: String? = null
     private var settingsMode: String? = null
     private var geometryMode: String? = null
+    private var sceneCurveMode: String? = null
     private var historyCrashPhase: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        sceneCurveMode?.let { mode ->
+            case(mode) { when(mode) {
+                "scene-curve-models" -> SceneCurveAudit(this,output).models()
+                "scene-curve-native" -> SceneCurveAudit(this,output).native()
+                "scene-curve-composition" -> GeometryCompositionAudit(this,output).run(sceneCurve=true)
+                else -> SceneCurveEditorAudit(this,output).run(mode)
+            } }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         geometryMode?.let { mode ->
             case(mode) { when(mode) {
                 "geometry-math" -> GeometryMathAudit(this).run()

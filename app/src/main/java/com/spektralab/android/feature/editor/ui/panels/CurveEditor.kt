@@ -55,29 +55,43 @@ import com.spektralab.android.feature.editor.ui.PhotoCanvas
 import com.spektralab.android.ui.theme.TheiaShapes
 import kotlin.math.sqrt
 
+/** Both tools share interactions and layout, but own separate models and render stages. */
+private class CurveBinding(val vm: EditorViewModel, val decode: Boolean) {
+    val curves: ToneCurves get() = if (decode) vm.params.sceneCurves.curves else vm.params.toneCurves
+    val unsupported: String? get() = if (decode) vm.params.unreadableSceneCurves else vm.params.unreadableToneCurves
+    fun begin() { if (decode) vm.beginSceneCurveEdit() else vm.beginCurveEdit() }
+    fun change(curves: ToneCurves) { if (decode) vm.changeSceneCurves(curves) else vm.changeCurves(curves) }
+    fun finish(cancel: Boolean = false) { if (decode) vm.finishSceneCurveEdit(cancel) else vm.finishCurveEdit(cancel) }
+}
+
 @Composable
-internal fun CurveEditor(vm: EditorViewModel) {
-    var opened by rememberSaveable(vm.currentUri) { mutableStateOf(false) }
-    var photoOnly by rememberSaveable(vm.currentUri) { mutableStateOf(false) }
+internal fun CurveEditor(vm: EditorViewModel, decode: Boolean = false) {
+    val target = remember(vm, decode) { CurveBinding(vm, decode) }
+    var opened by rememberSaveable(vm.currentUri, decode) { mutableStateOf(false) }
+    var photoOnly by rememberSaveable(vm.currentUri, decode) { mutableStateOf(false) }
     val savedState = rememberSaveableStateHolder()
     val toolState = rememberSaveableStateHolder()
-    val enabled = vm.hasPhoto && !vm.busy && !vm.isCropping && !vm.isExporting && !vm.isBatchExporting
+    val enabled = (!decode || !vm.params.filmOff) && vm.hasPhoto && !vm.busy && !vm.isCropping && !vm.isExporting && !vm.isBatchExporting
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                Text(stringResource(R.string.curve_title), style = MaterialTheme.typography.titleSmall)
-                Text(stringResource(if (vm.params.unreadableToneCurves != null) R.string.curve_unsupported
-                    else if (vm.params.toneCurves.isDefault) R.string.curve_entry_summary else R.string.curve_entry_changed),
+                Text(stringResource(if (decode) R.string.scene_curve_title else R.string.curve_title), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(if (decode) {
+                    if (vm.params.filmOff) R.string.scene_curve_off
+                    else if (target.unsupported != null) R.string.scene_curve_unsupported
+                    else if (target.curves.isDefault) R.string.scene_curve_summary else R.string.scene_curve_changed
+                } else if (target.unsupported != null) R.string.curve_unsupported
+                    else if (target.curves.isDefault) R.string.curve_entry_summary else R.string.curve_entry_changed),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp))
             }
             OutlinedButton(onClick = { photoOnly = false; opened = true }, enabled = enabled, shape = TheiaShapes.control,
-                modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.curve_edit)) }
+                modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(if (decode) R.string.scene_curve_edit else R.string.curve_edit)) }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f))
     }
     if (opened) {
-        val close = { vm.finishCurveEdit(cancel = true); photoOnly = false; opened = false }
+        val close = { target.finish(cancel = true); photoOnly = false; opened = false }
         // A full-window dialog must reserve its own navigation area even when the
         // parent editor has already consumed those insets.
         val navigationSpace = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(24.dp)
@@ -87,14 +101,14 @@ internal fun CurveEditor(vm: EditorViewModel) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = close) { Icon(Icons.Rounded.Close, stringResource(R.string.curve_close)) }
-                        Text(stringResource(R.string.curve_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                        IconButton(onClick = { vm.finishCurveEdit(); vm.undo() }, enabled = enabled && vm.canUndo) {
+                        Text(stringResource(if (decode) R.string.scene_curve_title else R.string.curve_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        IconButton(onClick = { target.finish(); vm.undo() }, enabled = enabled && vm.canUndo) {
                             Icon(Icons.AutoMirrored.Rounded.Undo, stringResource(R.string.curve_undo))
                         }
-                        IconButton(onClick = { vm.finishCurveEdit(); vm.redo() }, enabled = enabled && vm.canRedo) {
+                        IconButton(onClick = { target.finish(); vm.redo() }, enabled = enabled && vm.canRedo) {
                             Icon(Icons.AutoMirrored.Rounded.Redo, stringResource(R.string.curve_redo))
                         }
-                        IconButton(onClick = { vm.finishCurveEdit(cancel = true); photoOnly = !photoOnly }) {
+                        IconButton(onClick = { target.finish(cancel = true); photoOnly = !photoOnly }) {
                             Icon(if (photoOnly) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
                                 stringResource(if (photoOnly) R.string.curve_restore_tools else R.string.curve_expand_photo))
                         }
@@ -113,7 +127,7 @@ internal fun CurveEditor(vm: EditorViewModel) {
                                     Surface(Modifier.width((workspaceWidth * .38f).coerceIn(300.dp, 380.dp)).fillMaxHeight(),
                                         color = MaterialTheme.colorScheme.surfaceContainerLow) {
                                         toolState.SaveableStateProvider("tools") {
-                                            CurveControls(vm, (workspaceHeight - 132.dp).coerceIn(132.dp, 280.dp),
+                                            CurveControls(vm, target, (workspaceHeight - 132.dp).coerceIn(132.dp, 280.dp),
                                                 Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp))
                                         }
                                     }
@@ -126,7 +140,7 @@ internal fun CurveEditor(vm: EditorViewModel) {
                                     Surface(Modifier.height(panelHeight).fillMaxWidth(),
                                         color = MaterialTheme.colorScheme.surfaceContainerLow) {
                                         toolState.SaveableStateProvider("tools") {
-                                            CurveControls(vm, (panelHeight - 136.dp).coerceIn(144.dp, 224.dp),
+                                            CurveControls(vm, target, (panelHeight - 136.dp).coerceIn(144.dp, 224.dp),
                                                 Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp))
                                         }
                                     }
@@ -150,7 +164,9 @@ private fun CurvePhotoPreview(vm: EditorViewModel, modifier: Modifier) {
 
 @Composable
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
-private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifier = Modifier) {
+private fun CurveControls(vm: EditorViewModel, target: CurveBinding, graphHeight: Dp, modifier: Modifier = Modifier) {
+    val decode = target.decode
+    val plotHeight = if (decode) (graphHeight - 48.dp).coerceAtLeast(100.dp) else graphHeight
     val titles =
         listOf(
             stringResource(R.string.curve_rgb),
@@ -173,24 +189,24 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
     var down by remember { mutableStateOf(Offset.Zero) }
     val dragOwnership = remember { RequestDisallowInterceptTouchEvent() }
     val channel = CurveChannel.entries[channelIndex]
-    val curves = vm.params.toneCurves
+    val curves = target.curves
     val curve = curves[channel]
-    val enabled = vm.hasPhoto && !vm.busy && !vm.isExporting && !vm.isBatchExporting
+    val enabled = (!decode || !vm.params.filmOff) && vm.hasPhoto && !vm.busy && !vm.isExporting && !vm.isBatchExporting
     val pointIndex = selected.coerceIn(curve.points.indices)
     val point = curve.points[pointIndex]
-    val plotLabel = stringResource(R.string.curve_plot, titles[channelIndex])
-    if (vm.params.unreadableToneCurves != null) {
-        Column {
-            Text(stringResource(R.string.curve_unsupported), style = MaterialTheme.typography.bodyMedium)
+    val plotLabel = stringResource(if (decode) R.string.scene_curve_plot else R.string.curve_plot, titles[channelIndex])
+    if (target.unsupported != null) {
+        Column(modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Text(stringResource(if (decode) R.string.scene_curve_unsupported else R.string.curve_unsupported), style = MaterialTheme.typography.bodyMedium)
             Text(
                 stringResource(R.string.curve_unsupported_hint),
                 style = MaterialTheme.typography.bodySmall,
             )
             TextButton(
                 onClick = {
-                    vm.beginCurveEdit()
-                    vm.changeCurves(ToneCurves.IDENTITY)
-                    vm.finishCurveEdit()
+                    target.begin()
+                    target.change(ToneCurves.IDENTITY)
+                    target.finish()
                 },
                 enabled = enabled,
             ) {
@@ -202,7 +218,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
     val addLabel = stringResource(R.string.curve_add_midpoint)
     val previousLabel = stringResource(R.string.curve_previous_point)
     val nextLabel = stringResource(R.string.curve_next_point)
-    DisposableEffect(vm.currentUri, channel) { onDispose { dragOwnership(false); vm.finishCurveEdit(cancel = true) } }
+    DisposableEffect(vm.currentUri, channel) { onDispose { dragOwnership(false); target.finish(cancel = true) } }
     val accent =
         when (channel) {
             CurveChannel.RED -> Color(0xFFED9691)
@@ -224,7 +240,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                 TextButton(
                     enabled = enabled,
                     onClick = {
-                        vm.finishCurveEdit()
+                        target.finish()
                         channelIndex = index
                     },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { this.selected = channelIndex == index },
@@ -236,10 +252,12 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                 ) { Text(label, maxLines = 1) }
             }
         }
+        if (decode) Text(stringResource(R.string.scene_curve_axis), style = MaterialTheme.typography.labelSmall,
+            color = muted, modifier = Modifier.padding(vertical = 4.dp))
         if (!precision) {
             Canvas(
                 Modifier.fillMaxWidth()
-                    .height(graphHeight)
+                    .height(plotHeight)
                     .clip(TheiaShapes.panel)
                     .background(surface)
                     .semantics {
@@ -249,15 +267,15 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                             customActions =
                                 listOf(
                                     CustomAccessibilityAction(addLabel) {
-                                        vm.beginCurveEdit()
+                                        target.begin()
                                         val gap =
                                             curve.points.zipWithNext().maxBy { (a, b) -> b.x - a.x }
                                         val x = (gap.first.x + gap.second.x) / 2f
                                         val next = curve.add(x, curve.evaluate(x))
-                                        vm.changeCurves(curves.with(channel, next))
+                                        target.change(curves.with(channel, next))
                                         selected =
                                             next.points.indexOfFirst { it.x == x }.coerceAtLeast(0)
-                                        vm.finishCurveEdit()
+                                        target.finish()
                                         true
                                     },
                                     CustomAccessibilityAction(previousLabel) {
@@ -286,7 +304,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                                 down = Offset(event.x, event.y)
                                 moved = false
                                 virtualDrag = false
-                                val base = vm.params.toneCurves[channel]
+                                val base = target.curves[channel]
                                 val nearest =
                                     base.points.indices.minBy { i ->
                                         val p = base.points[i]
@@ -307,7 +325,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                                     selected = nearest
                                     grabOffset = Offset(base.points[nearest].x - point.x, base.points[nearest].y - point.y)
                                     dragging = base
-                                    vm.beginCurveEdit()
+                                    target.begin()
                                 } else {
                                     // Unused tonal handles ride the existing curve. They only become
                                     // control points when used, so opening the editor cannot change pixels.
@@ -325,7 +343,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                                             dragIndex = next.points.indexOfFirst { it.x == anchor }
                                             dragging = next
                                             grabOffset = Offset(anchor - point.x, base.evaluate(anchor) - point.y)
-                                            vm.beginCurveEdit()
+                                            target.begin()
                                         }
                                     }
                                 }
@@ -339,7 +357,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                                     val next = work.move(dragIndex, p.x, p.y)
                                     dragging = next
                                     selected = dragIndex
-                                    vm.changeCurves(vm.params.toneCurves.with(channel, next))
+                                    target.change(target.curves.with(channel, next))
                                 }
                                 if (dragging == null && pendingTap?.let { (Offset(event.x, event.y) - it).getDistance() > touchSlop } == true) {
                                     pendingTap = null
@@ -351,19 +369,19 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                             android.view.MotionEvent.ACTION_UP -> {
                                 if (dragging != null) {
                                     if (virtualDrag && !moved) {
-                                        vm.changeCurves(vm.params.toneCurves.with(channel, dragging!!))
+                                        target.change(target.curves.with(channel, dragging!!))
                                         selected = dragIndex
                                     }
-                                    vm.finishCurveEdit()
+                                    target.finish()
                                 }
                                 else if (pendingTap != null) {
-                                    val base = vm.params.toneCurves[channel]
+                                    val base = target.curves[channel]
                                     val next = base.add(point.x, point.y)
                                     if (next != base) {
-                                        vm.beginCurveEdit()
-                                        vm.changeCurves(vm.params.toneCurves.with(channel, next))
+                                        target.begin()
+                                        target.change(target.curves.with(channel, next))
                                         selected = next.points.indices.minBy { kotlin.math.abs(next.points[it].x - point.x) }
-                                        vm.finishCurveEdit()
+                                        target.finish()
                                     }
                                 }
                                 pendingTap = null
@@ -374,7 +392,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                             }
                             android.view.MotionEvent.ACTION_CANCEL,
                             android.view.MotionEvent.ACTION_POINTER_DOWN -> {
-                                vm.finishCurveEdit(cancel = true)
+                                target.finish(cancel = true)
                                 pendingTap = null
                                 dragging = null
                                 virtualDrag = false
@@ -389,7 +407,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                 val w = size.width - 2 * inset
                 val h = size.height - 2 * inset
                 // The histogram already exists for the displayed frame; drawing it needs no new render.
-                vm.histogram?.let { counts ->
+                if (!decode) vm.histogram?.let { counts ->
                     val bins = when (channel) {
                         CurveChannel.RED -> counts.r
                         CurveChannel.GREEN -> counts.g
@@ -449,7 +467,7 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                     drawCircle(accent, 6.dp.toPx(), at, style = Stroke(2.dp.toPx()))
                 }
             }
-        } else Column(Modifier.height(graphHeight).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 4.dp)) {
+        } else Column(Modifier.height(plotHeight).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { selected = (pointIndex - 1).coerceAtLeast(0) }, enabled = enabled && pointIndex > 0) {
                     Icon(Icons.Rounded.ChevronLeft, previousLabel)
@@ -461,21 +479,21 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                 }
             }
             CurveValueSlider(stringResource(R.string.curve_input), point.x,
-                enabled && pointIndex in 1 until curve.points.lastIndex,
-                onStart = vm::beginCurveEdit, onFinish = { vm.finishCurveEdit() },
-                onCancel = { vm.finishCurveEdit(cancel = true) }) {
-                vm.changeCurves(vm.params.toneCurves.with(channel,
-                    vm.params.toneCurves[channel].move(pointIndex, it, point.y)))
+                enabled && pointIndex in 1 until curve.points.lastIndex, decode = decode,
+                onStart = target::begin, onFinish = { target.finish() },
+                onCancel = { target.finish(cancel = true) }) {
+                target.change(target.curves.with(channel,
+                    target.curves[channel].move(pointIndex, it, point.y)))
             }
-            CurveValueSlider(stringResource(R.string.curve_output), point.y, enabled,
-                onStart = vm::beginCurveEdit, onFinish = { vm.finishCurveEdit() },
-                onCancel = { vm.finishCurveEdit(cancel = true) }) {
-                vm.changeCurves(vm.params.toneCurves.with(channel,
-                    vm.params.toneCurves[channel].move(pointIndex, point.x, it)))
+            CurveValueSlider(stringResource(R.string.curve_output), point.y, enabled, decode = decode,
+                onStart = target::begin, onFinish = { target.finish() },
+                onCancel = { target.finish(cancel = true) }) {
+                target.change(target.curves.with(channel,
+                    target.curves[channel].move(pointIndex, point.x, it)))
             }
         }
         Text(
-            stringResource(R.string.curve_hint),
+            stringResource(if (decode) R.string.scene_curve_hint else R.string.curve_hint),
             Modifier.padding(top = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             color = muted,
@@ -484,14 +502,15 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
             Column(Modifier.weight(1f).padding(start = 8.dp)) {
                 Text(stringResource(R.string.curve_point, pointIndex + 1, curve.points.size),
                     style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
-                Text(stringResource(R.string.curve_coordinates, (point.x * 255 + .5f).toInt(), (point.y * 255 + .5f).toInt()),
+                Text(if (decode) stringResource(R.string.scene_curve_coordinates, (point.x * 16 - 8).toDouble(), (point.y * 16 - 8).toDouble())
+                    else stringResource(R.string.curve_coordinates, (point.x * 255 + .5f).toInt(), (point.y * 255 + .5f).toInt()),
                     style = MaterialTheme.typography.labelMedium, color = accent, maxLines = 1)
             }
             IconButton(enabled = enabled && pointIndex in 1 until curve.points.lastIndex, onClick = {
-                vm.beginCurveEdit()
-                vm.changeCurves(curves.with(channel, curve.remove(pointIndex)))
+                target.begin()
+                target.change(curves.with(channel, curve.remove(pointIndex)))
                 selected = (pointIndex - 1).coerceAtLeast(0)
-                vm.finishCurveEdit()
+                target.finish()
             }) { Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.curve_delete)) }
             IconToggleButton(checked = precision, onCheckedChange = { precision = it }, enabled = enabled) {
                 Icon(if (precision) Icons.Rounded.ShowChart else Icons.Rounded.Tune,
@@ -505,18 +524,18 @@ private fun CurveControls(vm: EditorViewModel, graphHeight: Dp, modifier: Modifi
                     DropdownMenuItem(text = { Text(stringResource(R.string.curve_reset_channel)) },
                         enabled = enabled && curve != ToneCurve.IDENTITY, onClick = {
                             resetMenu = false
-                            vm.beginCurveEdit()
-                            vm.changeCurves(curves.with(channel, ToneCurve.IDENTITY))
+                            target.begin()
+                            target.change(curves.with(channel, ToneCurve.IDENTITY))
                             selected = 0
-                            vm.finishCurveEdit()
+                            target.finish()
                         })
                     DropdownMenuItem(text = { Text(stringResource(R.string.curve_reset_all)) },
                         enabled = enabled && !curves.isDefault, onClick = {
                             resetMenu = false
-                            vm.beginCurveEdit()
-                            vm.changeCurves(ToneCurves.IDENTITY)
+                            target.begin()
+                            target.change(ToneCurves.IDENTITY)
                             selected = 0
-                            vm.finishCurveEdit()
+                            target.finish()
                         })
                 }
             }
@@ -530,6 +549,7 @@ private fun CurveValueSlider(
     label: String,
     value: Float,
     enabled: Boolean,
+    decode: Boolean = false,
     onStart: () -> Unit,
     onFinish: () -> Unit,
     onCancel: () -> Unit,
@@ -544,7 +564,7 @@ private fun CurveValueSlider(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.labelMedium)
             Text(
-                "${(value*255+.5f).toInt()}",
+                if (decode) stringResource(R.string.scene_curve_value, (value * 16 - 8).toDouble()) else "${(value*255+.5f).toInt()}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )

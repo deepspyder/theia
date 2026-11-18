@@ -352,7 +352,7 @@ class EngineClient private constructor(
         @JvmStatic
         private external fun nativeBuildInfo(): String
 
-        fun buildInfo(): String = nativeBuildInfo() + "; android-export=scalar-origins-v3-film-windows-1; material-catalog=1; scene-geometry=1"
+        fun buildInfo(): String = nativeBuildInfo() + "; android-export=scalar-origins-v3-film-windows-1; material-catalog=1; scene-geometry=1; scene-curve=1"
 
         /**
          * 创建引擎。先把 `assets/engine/` 解压到 `filesDir/engine/`（引擎需要

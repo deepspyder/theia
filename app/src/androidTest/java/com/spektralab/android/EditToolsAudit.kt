@@ -23,7 +23,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 internal class EditToolsAudit(private val test: Instrumentation, private val output: File) {
-    private val groupLabels = listOf("胶片与相纸", "RAW 解码白平衡", "拍摄与胶片效果", "印放", "光线", "曲线", "颜色", "暗角", "构图与旋转", "片边与日期样式")
+    private val groupLabels = listOf("胶片与相纸", test.targetContext.getString(R.string.edit_group_decode), "拍摄与胶片效果", "印放", "光线", "曲线", "颜色", "暗角", "构图与旋转", "片边与日期样式")
     fun run(layoutOnly: Boolean = false): String {
         val context = test.targetContext
         val activity = test.startActivitySync(Intent(context, MainActivity::class.java)

@@ -1,0 +1,8 @@
+#include "params.hpp"
+#include "scene_curve/scene_curve_wire.hpp"
+
+namespace spk {
+bool parse_scene_curve(const std::string& text, std::vector<float>& table, size_t& samples, std::string& error) {
+    return theia::scene_curve::parse(text, table, samples, error);
+}
+} // namespace spk

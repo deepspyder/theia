@@ -34,6 +34,7 @@ internal fun ShootPanel(vm: EditorViewModel) {
         ToggleRow(stringResource(R.string.scene_film_enable), !vm.params.filmOff) { vm.params.filmOff = !it; vm.scheduleRender() }
         if (vm.params.filmOff) Text(stringResource(R.string.scene_film_saved), style = MaterialTheme.typography.bodySmall)
     }
+    CurveEditor(vm, decode = true)
     if (!vm.params.filmOff) {
     EditorSection("画幅与配光", "胶片物理画幅 · 自动配光", initiallyExpanded = false) {
         OptionsDropdown(

@@ -1,0 +1,36 @@
+#version 450
+
+// API-SPEC scene curve: metered linear RGB, axis E + Film Exposure in stops.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float v[]; } rgb;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float v[]; } p;
+layout(set = 0, binding = 2, std430) readonly buffer Table { float v[]; } table;
+layout(set = 0, binding = 3, std430) readonly buffer Count { uint v[]; } count;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float v[]; } dst;
+
+float gain(float value, uint row, uint samples) {
+    if (!(value > 0.0) || isnan(value) || isinf(value)) return 1.0;
+    precise float ev = log2(value / p.v[2]) + p.v[6];
+    precise float u = clamp((ev + p.v[1]) / (2.0 * p.v[1]), 0.0, 1.0);
+    precise float x = u * float(samples - 1u);
+    uint low = min(uint(x), samples - 2u);
+    precise float fraction = x - float(low);
+    precise float a = table.v[row * samples + low];
+    precise float b = table.v[row * samples + low + 1u];
+    precise float output_value = a * (1.0 - fraction) + b * fraction;
+    precise float departure = 2.0 * p.v[1] * (output_value - u);
+    return clamp(exp2(departure), exp2(-30.0), exp2(30.0));
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+    if (i >= count.v[0]) return;
+    uint samples = uint(p.v[0]);
+    float r = rgb.v[3u * i], g = rgb.v[3u * i + 1u], b = rgb.v[3u * i + 2u];
+    precise float y = p.v[3] * max(r, 0.0) + p.v[4] * max(g, 0.0) + p.v[5] * max(b, 0.0);
+    float k = gain(y, 1u, samples);
+    r *= k; g *= k; b *= k;
+    r *= gain(r, 0u, samples); g *= gain(g, 0u, samples); b *= gain(b, 0u, samples);
+    r *= gain(r, 2u, samples); g *= gain(g, 3u, samples); b *= gain(b, 4u, samples);
+    dst.v[3u * i] = r; dst.v[3u * i + 1u] = g; dst.v[3u * i + 2u] = b;
+}

@@ -1,0 +1,33 @@
+#include "pipeline.hpp"
+#include "timer.hpp"
+#include "latitude_fit.hpp"
+
+namespace spk {
+bool Pipeline::scene_curve_wanted() const { return !params_.camera.scene_curve.empty() && !params_.debug.lut_mode; }
+
+bool Pipeline::node_scene_curve(const Image& in, Image& out, std::string& error) {
+    Timer timer(this, "filming.expose.scene_curve");
+    std::vector<float> table;
+    size_t samples = 0;
+    if (!parse_scene_curve(params_.camera.scene_curve, table, samples, error))
+        return false;
+    // The graph runs before spectral upsampling/exposure. Read the curve at E+c,
+    // so the later physical film exposure sees f(E+c), not f(E)+c.
+    const float parameters[7] = {float(samples),
+                                 8.0f,
+                                 float(slm::kMidgray),
+                                 float(rgb_to_xyz_ae_.m[1][0]),
+                                 float(rgb_to_xyz_ae_.m[1][1]),
+                                 float(rgb_to_xyz_ae_.m[1][2]),
+                                 float(params_.camera.exposure_compensation_ev)};
+    auto settings = gpu_->upload(parameters, sizeof parameters, error);
+    auto values = gpu_->upload(table.data(), table.size() * sizeof(float), error);
+    if (!settings || !values || !alloc_like(in, out, error))
+        return false;
+    const uint32_t count[1] = {uint32_t(in.pixels())};
+    return gpu_->dispatch("spk_scene_curve",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(settings), gpu::Arg::buf(values),
+                           gpu::Arg::inline_bytes(count, 1), gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
+}
+} // namespace spk

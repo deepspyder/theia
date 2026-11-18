@@ -65,6 +65,7 @@ inline const Rule* rule(const char* kernel) {
         {"spk_mul", Kind::Point, {4, 4, 0, 4}},
         {"spk_print_exposure", Kind::Point, {4, 0, 0, 4}},
         {"spk_scene_latitude", Kind::Point, {12, 0, 0, 12}},
+        {"spk_scene_curve", Kind::Point, {12, 0, 0, 0, 12}},
         {"spk_sep_fir_acc", Kind::Fir, {}, 0x25},
         {"spk_spectral_epilogue", Kind::Point, {12, 0, 0, 0, 0, 0, 12}},
         {"spk_stride_sample", Kind::Stride, {0, 0, 12}, 0x01},

@@ -30,7 +30,7 @@ internal class GeometryCompositionAudit(private val test: Instrumentation,privat
             File(output,"geometry-composition-reference.png").outputStream().use {b.compress(Bitmap.CompressFormat.PNG,100,it)}
         }
         check(delta<=2){"Composition pixel mismatch $delta"}}
-    fun run():String {
+    fun run(sceneCurve: Boolean = false):String {
         val activity=test.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
         lateinit var vm:EditorViewModel;test.runOnMainSync{vm=ViewModelProvider(activity)[EditorViewModel::class.java]}
         await{vm.engine!=null && !vm.busy && vm.films.isNotEmpty()};val auto=vm.smartAutoEnabled;test.runOnMainSync{vm.smartAutoEnabled=false}
@@ -46,10 +46,14 @@ internal class GeometryCompositionAudit(private val test: Instrumentation,privat
             val uri=Uri.fromFile(file)
             val params=EditorParams().apply{filmOff=true;grainActive=false;glareActive=false;halationActive=false;perspectiveVertical=13f;perspectiveHorizontal=-7f
                 finishedCrop=FinishedCrop(.07f,0f,.8f,1f);vignetteAmount=55f;quarterTurns=1;flipV=true}
+            if (sceneCurve) { params.filmOff = false; params.sceneCurves = SceneCurveAudit.shaped() }
             EditStore.save(context,uri,params)
             val asset=EditStore.savedPhotos(context).first{it.uri==uri.toString()};val default=EditStore.editVersions(context,asset.assetId).first()
             val copied=EditStore.createEditVersion(context,default,"Geometry ${System.nanoTime()}");variant=copied
             val other=params.copy().apply {filmOff=false;overscanActive=true;dateImprintActive=true;dateImprintText="26 11 18";finishedCrop=FinishedCrop(.11f,0f,.72f,1f)}
+            if (sceneCurve) other.sceneCurves = com.spektralab.android.core.color.SceneCurves(
+                com.spektralab.android.core.color.ToneCurves.IDENTITY.with(com.spektralab.android.core.color.CurveChannel.RED,
+                    com.spektralab.android.core.color.ToneCurve.IDENTITY.add(.5f, .57f)))
             EditStore.save(context,copied.editUri,other)
             val uris=listOf(uri,copied.editUri);val edits=listOf(params,other)
             EngineClient.create(context).use {engine->for(p in edits){
@@ -84,7 +88,7 @@ internal class GeometryCompositionAudit(private val test: Instrumentation,privat
                 try{same(b,expectedTable)}finally{b.recycle();expectedTable.recycle();if(staged!==expected)staged.recycle()}
                 check(EditSnapshot.capture(EditStore.load(context,editUri)!!)==EditSnapshot.capture(edits[i]))
             }
-            return "Real virtual-copy batch and two 1600px light-table exports match independently graded-then-cut references; digital + film/border/date/rotation/perspective; source edits unchanged"
+            return (if (sceneCurve) "Independent per-version Decode curves; " else "") + "Real virtual-copy batch and two 1600px light-table exports match independently graded-then-cut references; digital + film/border/date/rotation/perspective; source edits unchanged"
         }finally {references.forEach(Bitmap::recycle);variant?.let{EditStore.deleteEditVersion(context,EditStore.editVersion(context,it.id))};(ids()-initial).forEach{context.contentResolver.delete(ContentUris.withAppendedId(media,it),null,null)};test.runOnMainSync{vm.smartAutoEnabled=auto;activity.finish()}}
     }
 }

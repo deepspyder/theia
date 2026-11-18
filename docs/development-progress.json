@@ -1,7 +1,8 @@
 {
-  "date": "2026-11-18",
-  "batch": "R06成片裁切、胶片旁路和透视已实现：两阶段几何分别持久化、水平/垂直透视、关闭胶片保留RAW与成片调色；预览/直方图、三格式/三自定义限额、批量虚拟副本与灯台输出、软打样/HD、历史重启接通。R05完整U16像素保持，独立数学与文件像素参考通过。R01—R06共6/26完成，下一项R07 Decode场景曲线。",
+  "date": "2026-11-19",
+  "batch": "R07 Decode场景曲线完成：独立五通道±8EV模型、胶片前Vulkan节点/窗口ABI、测光与medium隔离、历史/预设/同步/三格式/原尺寸RAW/灯台输出和四配置UI接通；旧默认完整U16保持。当前R01—R07共7/26完成，下一项R08专业输出色域与HEIF。按用户授权连续开发、逐项测试后英文commit并push。",
   "validation": [
+    "2026-11-19 R07：8组320024线性Vulkan像素普通/窗口逐位一致，CPU参考最大相对误差1.54e-6；62489胶片像素独立线性源参考最大差1U16，曝光补偿/自动测光/medium/新会话宽容度直方图合同通过。18次PNG/WebP/JPEG原尺寸+限额三格式实际输出、24.5MP NEF三格式/完整PNG摘要、RAW WB重解码、虚拟副本批量/灯台、历史重启和4配置32真实照片截图通过；总入口207/207。15工具测试、Lint零Error/74既有Warning/21Hint；主SO两ABI及3新shader变化，203旧运行条目保持。界面独立五节review为ship（消息已交付，最终传送随后provider403），文档更新editing-feedback，详见docs/features/r07-decode-scene-curves.md与.tmp/r07-scene-curves/verification.json。",
     "2026-11-18 R06：1200相机射线点、29877调色后裁切像素、78432原生几何像素；sRGB/P3裁后显示/直方图与完整画面参考一致。8组R05 U16逐位保持；PNG/WebP/JPEG EXIF1/3/6/8共36次实际三格式/三自定义限额输出、TIFF完整U16、原尺寸6064×4040 NEF及跨缓存完整PNG摘要一致。虚拟副本批量及两套1600px灯台与独立调色后裁切参考一致；历史重启/redo、取消/重绑及4配置真实照片界面通过。29组244条执行记录、总入口207/207、28原生截图；短横屏裁切侧栏复核resolved/ship，详细汇总见docs/features/r06-scene-geometry.md和.tmp/r06-geometry/verification.json。仍仅API37 x86_64，不宣称ARM驱动或手机性能验收。",
     "2026-11-18 R05：20组228条执行记录、总入口207/207；新图黑白默认材料/旧编辑隔离、三档RAW/PNG预览、同次打开预算冻结及原尺寸整文件SHA跨预算保持；真实进程重启偏好恢复。原子偏好/坏未来超长保护、真实不可写目录、两读者clear/零预算U16保持、可选缓存IO隔离通过；实际SAF选址取消/保存/ENOSPC/慢目标取消删除、电脑ZIP CRC/精确字段白名单通过。4配置44截图、短横屏880dp与取消状态复核，Debug/AndroidTest/Release/Lint零Error，既有74Warning/21Hint无新增位置，14工具测试通过。205原生/运行资产与R04逐字节一致；Release58614312字节/4eedb4757963eda999d7a00c561d8ac4bc1e15035963472030a264ef68eefbc9，原证书/16KiB通过。仅API37 x86_64，非ARM/厂商云端/性能承诺。详见docs/features/r05-settings-cache-diagnostics.md及.tmp/r05-settings/verification.json。",
     "2026-11-18 R04：122组独立有效灰点/相机数学样本、两份真实NEF反解与四轴8次引擎U16逐值对照通过；10份RAW默认/自定义预览及有界导出与R03逐值相同。JPEG/EXIF6/PNG/WebP触点/裁剪旋转、取消/源变化、独立混合轴与虚拟副本批量、6064×4040三格式、实际重启undo/redo通过；总入口207/207，25组235条记录。4配置28截图、导航问题定点复核ship；Debug/AndroidTest/Release/Lint零Error、既有74warning/21hint、14工具测试通过。199资产保持，仅新增RAW标定/JNI改变两ABI主SO；原签名/16KiB对齐通过，Release58545840字节/6a02a931cdf5d7017d40421630ff2462eaeb13918c5a89a41377c43ca1d04ffd。单次顺序原尺寸JPEG18.081s、PNG4.768s、TIFF0.753s，未独立记录缓存计数/交错冷热，不代表编码比较或手机性能。详见docs/features/r04-neutral-white-balance.md及.tmp/r04-neutral/verification.json。",
@@ -637,12 +638,18 @@
     {
       "id": "F13",
       "name": "Decode 场景曲线",
-      "status": "pending",
-      "evidence": [],
-      "remaining": [
-        "五行曲线表；曝光后档位语义；Vulkan 内核；宽容度直方图与中性验证"
+      "status": "in_progress",
+      "evidence": [
+        "R07胶片前Decode场景曲线已完成，独立±8EV五行表/SHOOT失效/Vulkan与窗口化/曝光及测光/medium合同、实际三格式/RAW/虚拟副本/灯台/历史/四配置界面通过。现有宽容度直方图测量保持，新会话独立核对通过，图表不误用编码成片直方图。"
       ],
-      "sources": []
+      "remaining": [
+        "参考项目增强场景直方图/曝光轴可视化仍可继续；当前场景曲线图提供准确EV刻度和读数，尚未绘制该增强统计图；ARM设备验收仍待。"
+      ],
+      "sources": [
+        "app/src/main/java/com/spektralab/android/core/color/SceneCurves.kt",
+        "app/src/main/cpp/shaders/vulkan/spk_scene_curve.comp",
+        "app/src/main/java/com/spektralab/android/feature/editor/ui/panels/CurveEditor.kt"
+      ]
     },
     {
       "id": "F14",
@@ -783,10 +790,10 @@
     }
   ],
   "next": [
-    "按docs/upstream-2.4.2-android-roadmap.md执行：R01—R06已交付，下一项R07 Decode场景曲线；先定义胶片前曝光档位/恒等曲线/wire缓存合同与独立原生像素参考，再接RAW/JPEG、界面、历史和三格式。剩余20个R工作包及原F清单范围保持。",
+    "按docs/upstream-2.4.2-android-roadmap.md连续执行：R01—R07已交付，下一项R08专业输出色域与HEIF，先真实颜色变换/ICC/完整文件读回，再设备编码能力。每项测试后英文commit并push origin/master；余19个R工作包和F清单未完范围保持。",
     "小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。 R03同步持久化主线程P95约19.4ms（本轮模拟器样本），ARM持续编辑与尾延迟仍待验，不作60fps保证。",
     "R10及F01/F02/F03/F16继续跨节点峰值预算、阶段缓存、全入口host、持久源身份/授权、完整中断/满盘/取消矩阵与安全重试。保留精确suspend/resume和ARM连续负载验收。",
-    "R07/R08/R09分别接Decode场景曲线、真实专业色彩输出与全尺寸细节；R06成片几何与旁路已完成。F17非中性成片工作空间与PC独立对照继续，默认CineStill一致不代表所有后期表面一致。",
+    "R08/R09分别接真实专业色彩输出与全尺寸细节；R07独立Decode场景曲线已完成。F13增强场景统计可视化及F17非中性成片工作空间与PC独立对照继续。",
     "R11半格双源项目按稳定资产/持久历史/两级几何与任务合同接入，随后R12双重曝光；保留F10原范围，单张135_half与灯台拼图不冒充该能力。",
     "R13独立冲印/contrast mask与R14–R18局部层/画笔/scene层/自动主体/水印分开交付；自动主体先调查本地模型与许可，不能直接移植Apple Vision。",
     "F07/F08/F09补长期URI、云端/缺源、图库批量整理、外部加入持久灯台、更高像素/分带导出；原有自由画布及首批正式输出保持。",

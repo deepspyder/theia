@@ -39,6 +39,8 @@ else()
 
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/AndroidHalation.cmake")
     theia_android_halation("${SPEKTRA_ENGINE_DIR}" SPK_ANDROID_ENGINE_DIR)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/AndroidSceneCurve.cmake")
+    theia_android_scene_curve("${SPK_ANDROID_ENGINE_DIR}")
 
     set(SPK_CORE_SOURCES
         ${SPK_ANDROID_ENGINE_DIR}/src/core/blob.cpp
@@ -51,6 +53,7 @@ else()
         ${SPK_ANDROID_ENGINE_DIR}/src/core/latitude_fit.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/core/numeric.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/core/params.cpp
+        ${SPK_ANDROID_ENGINE_DIR}/src/core/scene_curve_android.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/core/print_lut.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/core/printing.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/core/profile.cpp
@@ -70,6 +73,7 @@ else()
         ${SPK_ANDROID_ENGINE_SOURCE}
         ${SPK_ANDROID_PIPELINE_SOURCE}
         ${SPK_ANDROID_ENGINE_DIR}/src/pipeline/scene_latitude.cpp
+        ${SPK_ANDROID_ENGINE_DIR}/src/pipeline/scene_curve_android.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/pipeline/windows_unported.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/pipeline/view_process.cpp
         ${SPK_ANDROID_ENGINE_DIR}/src/pipeline/overscan.cpp
@@ -134,7 +138,7 @@ else()
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
             spk_reduce_max spk_boost spk_highlight_headroom spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
-            spk_lut3d_trilinear spk_di_normalise spk_di_encode spk_scene_latitude
+            spk_lut3d_trilinear spk_di_normalise spk_di_encode spk_scene_latitude spk_scene_curve
             spk_overscan_canvas spk_overscan_add_mask spk_overscan_film_present spk_overscan_light)
         set(vulkan_spirv)
         foreach(kernel ${SPEKTRALAB_VULKAN_KERNELS})

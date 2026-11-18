@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scene_curve_title">场景曲线</string>
+    <string name="scene_curve_edit">编辑场景曲线</string>
+    <string name="scene_curve_summary">胶片前线性信号 · −8 至 +8 EV</string>
+    <string name="scene_curve_changed">已调整场景曲线 · 重新显影</string>
+    <string name="scene_curve_off">开启胶片模拟后可编辑；当前曲线已保留</string>
+    <string name="scene_curve_unsupported">场景曲线格式暂不支持，原始数据已保留。重置此曲线或关闭胶片模拟后继续。</string>
+    <string name="scene_curve_coordinates">%1$+.1f EV → %2$+.1f EV</string>
+    <string name="scene_curve_value">%1$+.1f EV</string>
+    <string name="scene_curve_plot">%1$s 场景曲线图 · −8 至 +8 EV</string>
+    <string name="scene_curve_hint">曝光后输入 → 输出 · 0 EV 为测光中灰。拖动控制点调整。</string>
+    <string name="scene_curve_axis">输入 −8 · −4 · 0 · +4 · +8 EV</string>
+</resources>

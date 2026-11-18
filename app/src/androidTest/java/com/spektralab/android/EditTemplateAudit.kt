@@ -29,6 +29,7 @@ internal object EditTemplateAudit {
             colorWheels = ColorWheels(shadows = WheelAdjustment(220f, 25f, -8f))
             channelMixer = ChannelMixer(red = MixerRow(10f, -15f, 5f))
             colorAdjustments = ColorAdjustments.NEUTRAL.withVibrance(20f)
+            sceneCurves = SceneCurveAudit.shaped()
             filmOff = true; perspectiveVertical = 11f; perspectiveHorizontal = -9f
             finishedCrop = com.spektralab.android.core.geometry.FinishedCrop(.1f, .15f, .8f, .7f)
         }
@@ -38,7 +39,7 @@ internal object EditTemplateAudit {
             dateImprintText = "2025-10-06"; dateImprintDataText = "ISO 200"; smartDevelopSummary = "target analysis"
         }
         val known = base.toJson().keys().asSequence().toSet() + setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
-            "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop")
+            "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop", "scene_curves")
         val grouped = EditGroup.entries.flatMap { it.fields }
         check(grouped.size == grouped.distinct().size)
         check(grouped.toSet().intersect(EditGroup.LOCAL_FIELDS).isEmpty())
@@ -140,6 +141,7 @@ internal object EditTemplateAudit {
         check(runCatching { EditStore.saveBatch(isolated, listOf(EditStore.BatchEdit(first, a.json, updated), EditStore.BatchEdit(second, b.json, updated))) }.isFailure)
         check(EditStore.load(isolated, first)!!.brightness == 0f)
         EditStore.save(isolated, first, EditorParams.fromJson(JSONObject(a.json!!).put("future_extension", JSONObject().put("keep", true))).apply {
+            sceneCurves = SceneCurveAudit.shaped()
             filmOff = true; perspectiveVertical = 17f; perspectiveHorizontal = -9f
             finishedCrop = com.spektralab.android.core.geometry.FinishedCrop(.1f, .1f, .8f, .8f)
         })

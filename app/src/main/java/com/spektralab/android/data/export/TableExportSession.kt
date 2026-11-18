@@ -163,7 +163,7 @@ internal class TableExportSession private constructor(
                     val png = read == 26 && header.take(8) == listOf(137,80,78,71,13,10,26,10).map(Int::toByte)
                     check(!(png && (header[24].toInt() and 255) > 8) && evidence.mime != "image/tiff") { "TABLE_EXPORT_PRECISION" }
                 }
-                check(params?.unreadableColorWheels == null && params?.unreadableChannelMixer == null &&
+                check(params?.unreadableSceneCurves == null && params?.unreadableColorWheels == null && params?.unreadableChannelMixer == null &&
                     params?.unreadableColorAdjustments == null && params?.unreadableToneCurves == null) { "TABLE_EXPORT_UNSUPPORTED" }
                 val edge = plan.sourceEdge(recorded.uri)
                 check(edge <= MAX_INPUT_EDGE) { "TABLE_EXPORT_CAPACITY" }

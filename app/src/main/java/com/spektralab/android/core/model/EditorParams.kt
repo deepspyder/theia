@@ -12,6 +12,7 @@ import com.spektralab.android.core.geometry.computeCenteredCropByAspect
 import com.spektralab.android.core.geometry.overscanGateAspect
 import com.spektralab.android.core.geometry.FinishedCrop
 import com.spektralab.android.engine.StockCatalog
+import com.spektralab.android.core.color.SceneCurves
 import org.json.JSONObject
 
 /**
@@ -114,6 +115,8 @@ class EditorParams {
     var unreadableChannelMixer by mutableStateOf<String?>(null)
     var colorWheels by mutableStateOf(ColorWheels.NEUTRAL)
     var unreadableColorWheels by mutableStateOf<String?>(null)
+    var sceneCurves by mutableStateOf(SceneCurves.IDENTITY)
+    var unreadableSceneCurves by mutableStateOf<String?>(null)
     var toneCurves by mutableStateOf(ToneCurves.IDENTITY)
     var unreadableToneCurves by mutableStateOf<String?>(null)
     var vignetteAmount by mutableFloatStateOf(0f) // 0..100, zero preserves existing output
@@ -162,6 +165,13 @@ class EditorParams {
 
     /** 编辑时的参数 delta。 */
     fun deltaJson(srcW: Int, srcH: Int): String = baseJson(srcW, srcH).toString()
+
+    /** An unsupported future curve may be inspected/reset, but never silently exported. */
+    internal fun previewOpenJson(srcW: Int, srcH: Int, outputColorSpace: String = "sRGB", inputColorSpace: String = "sRGB"): String =
+        baseJson(srcW, srcH, preview = true).put("input_color_space", inputColorSpace)
+            .put("output_color_space", outputColorSpace).toString()
+
+    internal fun previewDeltaJson(srcW: Int, srcH: Int): String = baseJson(srcW, srcH, preview = true).toString()
 
     /** 序列化为 sidecar JSON（所有可编辑字段）。 */
     fun toJson(): JSONObject = JSONObject()
@@ -258,6 +268,8 @@ class EditorParams {
         .put("date_imprint_inset_y", dateImprintInsetY.toDouble())
         .put("date_imprint_data_text", dateImprintDataText)
         .apply {
+            if (unreadableSceneCurves != null) put("scene_curves", org.json.JSONTokener(unreadableSceneCurves!!).nextValue())
+            else if (!sceneCurves.isDefault) put("scene_curves", sceneCurves.toJson())
             if (filmOff) put("film_off",true)
             if (perspectiveVertical != 0f) put("perspective_vertical",perspectiveVertical.toDouble())
             if (perspectiveHorizontal != 0f) put("perspective_horizontal",perspectiveHorizontal.toDouble())
@@ -316,6 +328,7 @@ class EditorParams {
         colorAdjustments = p.colorAdjustments; unreadableColorAdjustments = p.unreadableColorAdjustments
         channelMixer = p.channelMixer; unreadableChannelMixer = p.unreadableChannelMixer
         colorWheels = p.colorWheels; unreadableColorWheels = p.unreadableColorWheels
+        sceneCurves = p.sceneCurves; unreadableSceneCurves = p.unreadableSceneCurves
         toneCurves = p.toneCurves; unreadableToneCurves = p.unreadableToneCurves
         vignetteAmount = p.vignetteAmount; vignetteSize = p.vignetteSize; vignetteFeather = p.vignetteFeather
         cbShadowTemp = p.cbShadowTemp; cbShadowTint = p.cbShadowTint; cbMidTemp = p.cbMidTemp; cbMidTint = p.cbMidTint
@@ -336,7 +349,7 @@ class EditorParams {
         private val knownFields: Set<String> by lazy {
             EditorParams().toJson().keys().asSequence().toSet() +
                 setOf("tone_curves", "color_adjustments", "channel_mixer", "color_wheels",
-                    "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop")
+                    "film_off", "perspective_vertical", "perspective_horizontal", "finished_crop", "scene_curves")
         }
         /** Same per-film RMS calibration as Windows desktop/shared/params.ts. */
         fun ownGrain(stock: String): Float = when (stock) {
@@ -441,6 +454,13 @@ class EditorParams {
                     ColorAdjustments.NEUTRAL
                 }
             }
+            if (json.has("scene_curves")) {
+                val raw = json.get("scene_curves")
+                p.sceneCurves = try { SceneCurves.fromJson(raw as JSONObject) } catch (_: Exception) {
+                    p.unreadableSceneCurves = org.json.JSONArray().put(raw).toString().let { it.substring(1, it.length - 1) }
+                    SceneCurves.IDENTITY
+                }
+            }
             val curveData = json.optJSONObject("tone_curves")
             p.toneCurves = try { ToneCurves.fromJson(curveData) } catch (_: Exception) {
                 p.unreadableToneCurves = curveData?.toString()
@@ -483,7 +503,8 @@ class EditorParams {
         }
     }
 
-    private fun baseJson(srcW: Int, srcH: Int): JSONObject {
+    private fun baseJson(srcW: Int, srcH: Int, preview: Boolean = false): JSONObject {
+        require(unreadableSceneCurves == null || filmOff || preview) { "UNSUPPORTED_SCENE_CURVE" }
         // 片边开启时，把源图居中裁到该画幅的门径（gate）比例，否则用用户的裁剪。
         val c = if (overscanActive && !filmOff) {
             computeCenteredCropByAspect(overscanGateAspect(overscanFormat, srcW, srcH), srcW, srcH)
@@ -535,6 +556,8 @@ class EditorParams {
             .put("geometry_crop_w", c[2].toDouble())
             .put("geometry_crop_h", c[3].toDouble())
             .put("camera_filter", cameraFilter)
+            // The curve is a film-exposure operation; bypass keeps its saved data dormant.
+            .put("scene_curve", if (filmOff) "" else sceneCurves.wire)
             .put("overscan_active", overscanActive && !filmOff)
             .put("overscan_format", overscanFormat)
             .put("overscan_mode", overscanMode)
