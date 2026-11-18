@@ -9,6 +9,7 @@ import com.spektralab.android.core.model.SourceEvidence
 import com.spektralab.android.core.model.PhotoLabel
 import com.spektralab.android.core.model.PhotoLibraryFilter
 import com.spektralab.android.core.model.EditVersionUri
+import com.spektralab.android.core.model.EditHistoryPosition
 import com.spektralab.android.data.local.writeAtomicJson
 import java.io.Closeable
 import java.io.File
@@ -26,6 +27,7 @@ internal data class PhotoLibraryPage(val photos: List<SavedPhoto>, val albums: L
 internal class SavedPhotoRepository private constructor(private val directory: File, private val db: SQLiteDatabase) : Closeable {
     val organization = PhotoOrganizationRepository(db)
     val versions = EditVersionRepository(db) { checkEditable(it) }
+    val history = EditHistoryRepository(db) { checkEditable(it) }
     data class PendingWrite(val uri: Uri, val expected: String?, val json: String)
     enum class Checkpoint { BACKUP_READY, IMPORT_WRITTEN, IMPORT_COMMITTED, BATCH_WRITTEN, SOURCE_RELINKED, SOURCE_RELINK_COMMITTED }
     internal var checkpoint: (Checkpoint) -> Unit = {}
@@ -77,21 +79,52 @@ internal class SavedPhotoRepository private constructor(private val directory: F
         return read(uri)
     }
 
-    fun save(uri: Uri, json: String, name: String) = transaction {
+    fun save(uri: Uri, json: String, name: String, group: String? = null, origin: String = "save",
+             expectedGeneration: Long? = null, baseline: String? = null): EditHistoryPosition? = transaction {
         val incoming = JSONObject(json)
         val current = read(uri)
         checkEditable(current)
-        if (current == json) return@transaction
-        if (current == null) insert(uri, json, name) else update(uri, json)
+        if (current == null) insert(uri, json, name)
+        val position = if (runCatching { validate(incoming) }.isSuccess) {
+            val (id, assetId) = historyIdentity(uri)
+            history.append(id, assetId, current ?: baseline ?: json, json, group, origin, expectedGeneration)
+        } else null // Preserve opaque future imports; their next mutation remains blocked.
+        if (current != null && current != json) update(uri, json)
+        history.checkpoint(EditHistoryRepository.Checkpoint.EDIT_WRITTEN)
         // Incoming values are checked once; the exact serialized value can be reused next frame.
         rememberValidation(json, incoming)
+        position
+    }
+
+    fun historyPosition(uri: Uri, initial: String, name: String): EditHistoryPosition = transaction {
+        val current = read(uri) ?: return@transaction requireNotNull(save(uri, initial, name))
+        checkEditable(current)
+        val (id, assetId) = historyIdentity(uri)
+        history.ensure(id, assetId, current)
+    }
+
+    fun moveHistory(uri: Uri, generation: Long, redo: Boolean): EditHistoryPosition = transaction {
+        val current = requireNotNull(read(uri)) { "EDIT_MISSING" }
+        checkEditable(current)
+        val (id, _) = historyIdentity(uri)
+        val next = history.move(id, current, generation, redo)
+        if (next.paramsJson != current) update(uri, next.paramsJson)
+        history.checkpoint(EditHistoryRepository.Checkpoint.EDIT_WRITTEN)
+        next
+    }
+
+    private fun historyIdentity(uri: Uri): Pair<String, String> {
+        if (EditVersionUri.owns(uri)) return versions.find(EditVersionUri.id(uri)).let { it.id to it.assetId }
+        return db.rawQuery("SELECT e.variant_id,a.asset_id FROM assets a JOIN edits e USING(asset_id) WHERE a.source_key=?",
+            arrayOf(key(uri))).use { check(it.moveToFirst()) { "EDIT_MISSING" }; it.getString(0) to it.getString(1) }
     }
 
     fun saveBatch(writes: List<PendingWrite>, names: Map<Uri, String>) = transaction {
         check(writes.map { key(it.uri) }.distinct().size == writes.size) { "EDIT_TARGET_ALIAS" }
         writes.forEach { check(read(it.uri) == it.expected) { "EDIT_TARGET_CHANGED" }; checkEditable(it.expected); JSONObject(it.json) }
         writes.forEach { write ->
-            if (write.expected == null) insert(write.uri, write.json, names[write.uri].orEmpty()) else update(write.uri, write.json)
+            save(write.uri, write.json, names[write.uri].orEmpty(), origin = "copy",
+                baseline = if (write.expected == null) com.spektralab.android.core.model.EditorParams().toJson().toString() else null)
         }
         checkpoint(Checkpoint.BATCH_WRITTEN)
     }
@@ -283,8 +316,15 @@ internal class SavedPhotoRepository private constructor(private val directory: F
     }
     private fun <T> transaction(block: () -> T): T {
         db.beginTransactionNonExclusive()
+        var failure: Throwable? = null
         try { val result = block(); db.setTransactionSuccessful(); return result }
-        finally { db.endTransaction() }
+        catch (error: Throwable) { failure = error; throw error }
+        finally {
+            // SQLITE_FULL can automatically roll back the native transaction.
+            // Keep the actual storage failure if Android's cleanup also complains.
+            try { db.endTransaction() }
+            catch (cleanup: Throwable) { if (failure == null) throw cleanup else failure.addSuppressed(cleanup) }
+        }
     }
     override fun close() = db.close()
 
@@ -298,6 +338,14 @@ internal class SavedPhotoRepository private constructor(private val directory: F
         }
         fun open(directory: File): SavedPhotoRepository {
             check(directory.isDirectory || directory.mkdirs())
+            val path = File(directory, "saved-photos.db")
+            if (path.exists()) {
+                // Check before enabling WAL or migrating, including a future build's file.
+                SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY,
+                    android.database.DatabaseErrorHandler { android.util.Log.e("SavedPhotos", "Database retained") }).use {
+                    require(it.version in 0..6) { "UNSUPPORTED_SAVED_PHOTOS_VERSION" }
+                }
+            }
             val db = SQLiteDatabase.openDatabase(File(directory, "saved-photos.db").absolutePath, null,
                 SQLiteDatabase.CREATE_IF_NECESSARY or SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING,
                 android.database.DatabaseErrorHandler {
@@ -306,7 +354,7 @@ internal class SavedPhotoRepository private constructor(private val directory: F
                 })
             try {
                 db.setForeignKeyConstraintsEnabled(true)
-                require(db.version in 0..5) { "UNSUPPORTED_SAVED_PHOTOS_VERSION" }
+                require(db.version in 0..6) { "UNSUPPORTED_SAVED_PHOTOS_VERSION" }
                 val repository = SavedPhotoRepository(directory, db)
                 if (db.version == 0) repository.transaction {
                     db.execSQL("CREATE TABLE assets(asset_id TEXT PRIMARY KEY,source_key TEXT UNIQUE NOT NULL,uri TEXT NOT NULL,name TEXT NOT NULL)")
@@ -332,6 +380,10 @@ internal class SavedPhotoRepository private constructor(private val directory: F
                 if (db.version == 4) repository.transaction {
                     db.execSQL("CREATE TABLE hidden_photos(asset_id TEXT PRIMARY KEY REFERENCES assets(asset_id))")
                     db.version = 5
+                }
+                if (db.version == 5) repository.transaction {
+                    EditHistoryRepository.createSchema(db)
+                    db.version = 6
                 }
                 return repository
             } catch (error: Throwable) { db.close(); throw error }

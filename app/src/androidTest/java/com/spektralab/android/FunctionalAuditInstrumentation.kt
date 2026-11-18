@@ -137,6 +137,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     }
     override fun onCreate(arguments: Bundle?) {
         val audit = arguments?.getString("audit")
+        historyEditorOnly = audit == "history-editor"
+        historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
+        historyStorageOnly = audit == "history-storage"
+        historyProcessPhase = audit?.removePrefix("history-process-")?.takeIf { it in setOf("seed", "verify", "branch") }
         exportOptionsMode = audit?.takeIf { it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
         legacyUiOnly = audit == "legacy-ui"
@@ -275,9 +279,41 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var legacyUiOnly = false
     private var exportMatrixPart: String? = null
     private var exportOptionsMode: String? = null
+    private var historyProcessPhase: String? = null
+    private var historyStorageOnly = false
+    private var historyEditorOnly = false
+    private var historyCrashPhase: String? = null
 
     override fun onStart() {
         output = File(targetContext.getExternalFilesDir(null), "functional-audit").apply { mkdirs() }
+        if (historyEditorOnly) {
+            case("history.editor") { PersistentHistoryEditorAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        historyCrashPhase?.let { phase ->
+            case("history.crash.$phase") { PersistentHistoryCrashAudit(output).run(phase) }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        if (historyStorageOnly) {
+            case("history.storage") { PersistentHistoryStorageAudit(this, output).run() }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
+        historyProcessPhase?.let { phase ->
+            case("history.process.$phase") { PersistentHistoryProcessAudit(this, output).run(phase) }
+            val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
+            finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
+                Bundle().apply { putString("stream", rows.toString(2)) })
+            return
+        }
         exportOptionsMode?.let { mode ->
             case(mode) {
                 when (mode) {

@@ -1,7 +1,9 @@
 {
   "date": "2026-11-18",
-  "batch": "R02自定成片长边/短边/MP、文件命名组合与配方管理完成；单张/批量/软打样共用尺寸合同，旧四档保持，命名冻结与重名保护，原子配方持久化/未知字段保留已接通。57张实际导出独立完整解码通过，四配置UI与规范检查记录见docs/features/r02-export-options.md。本批不关闭F15专业色域/HEIF或F16完整续跑，下一项R03持久历史。",
+  "batch": "R03持久撤销/重做已实现：schema6增量迁移、稳定编辑ID、压缩步骤/cursor/generation及当前编辑同事务；分支裁剪/连续输入合并、256状态/8MiB上限与错误回退接通。真实跨进程红绿、四处WAL进程终止、SQLITE_FULL与回滚、旧版本/副本/重定位、重启前后完整预览和三格式原尺寸文件摘要通过；总入口207/207。本批无新界面、JNI或材料改变，下一项R04白平衡吸管。",
   "validation": [
+    "R03最终17组235条执行记录（含重复）、总入口207/207与四处真实kill/WAL恢复通过；完整预览和三格式原尺寸SHA跨重启相同。最终包58496323字节/da4c59eb0e2a3aae15708d208ad3477bc5920b4030c1678f952103edd34b9b67，原签名/双ABI/16KiB与205项原生运行资源保持；Lint零Error，现存74warning/21hint的Kotlin位置均在基线源码行上，未屏蔽检查。原先失败、SQLite满盘夹具和工具栏入口等待修正记录保留。",
+    "2026-11-18 R03：旧R02真实重启丢失undo/redo已复现；新三阶段重启/新分支、真实工具栏点击、RGBA16预览与JPEG/PNG/TIFF原尺寸SHA跨重启完全相同。四断点killProcess/WAL回滚、已提交undo恢复，真实SQLITE_FULL、批量/裁剪回收回滚、schema5→6/未知字段/未来与损坏保留、256状态/8MiB配额通过。100次连续调色合为一步，模拟器主提交中位6.874ms/P95 19.373ms，非60fps承诺。总入口207/207，Debug/AndroidTest/Release/Lint零Error、14工具测试和分包检查通过；205项原生/运行资源保持。见docs/features/r03-persistent-history.md及.tmp/r03-history/verification.json，仅API37 x86_64。",
     "R02补充完整应用总入口207/207及独立系统选图UI12/12通过。首轮206/207误选自身刚输出的DI TIFF，现改用测试自建JPEG并断言新URI、317×211实际解码和渲染；失败JSON/logcat/截图保留。普通非DNG TIFF/DI TIFF回导仍未接通，已明确列后续，不冒称修好。最终12专项/总入口组229条执行记录（含重复），另57独立图像与24原生截图；原证书V1/V2/V3和16KiB APK对齐通过。",
     "2026-11-18 R02：57张PNG/JPEG/WebP/DNG/24MPNEF实际导出，含三自定限制、三容器、EXIF/裁剪/旋转/片边及四旧尺寸；独立二维积分+电脑完整RGB读回，19JPEG/19PNG全同、19TIFF中17全同/2最大差1个U16码值。批量冻结/同名去重/取消、117×79自定软打样不发布、配方损坏和未来版本保护、schema1/2/3及Unicode命名合同通过。4配置UI与底部边界复核、Debug/AndroidTest/Release/Lint零Error、14工具测试通过；205项原生库/运行资源全同。证据.tmp/r02-export/verification.json，仅API37 x86_64；首次原尺寸显影峰值和ARM实机仍待。",
     "2026-11-18 R01：21项RAW访问合同及原有file/FileProvider/pipe预览和导出逐值对照通过；真实跨UID提供器触发旧实现RAW open IO，新实现恢复正确。真实全尺寸解码取消、六种12/14bit Nikon NEF导入/截断拒绝通过，3组均PASS。Debug/AndroidTest/Release构建、14项工具单测与分包校验通过。记录raw-provider-recovery.md，证据.tmp/libraw-upgrade/raw-input-green2/summary.json；未拿到小米15Ultra失败DNG，真机待验。",
@@ -480,10 +482,11 @@
         "F08回归补充修复：图库刷新/打开/工作台恢复/原片校验先登记LAZY任务再启动，避免极快IO完成后加载标志悬挂；原片恢复完整流程和连续32次刷新通过。",
         "第五批图库批量移除：DBv5可见性元数据、选择/长按/跨页全选/确认/安全移除/重新导入恢复完成。130条隔离存储与66条UI、4配置及独立限定范围复核通过；不删除手机原片、编辑版本、相册归属或工作台。",
         "2026-11-14图库批量整理：新增多选批量加入用户相册，事务写入成员关系并保留原片和编辑；三张照片批量加入回归通过。加入观景台临时工作台与已保存观景台项目入口已接入。",
-        "R01 RAW读取同fd恢复、分段资产精确边界、取消与错误不盲重试已实现；真实跨UID fd自然失败的红绿记录及21合同、原预览/导出对照通过。小米15Ultra原失败DNG与真机待验，非全图库验收。"
+        "R01 RAW读取同fd恢复、分段资产精确边界、取消与错误不盲重试已实现；真实跨UID fd自然失败的红绿记录及21合同、原预览/导出对照通过。小米15Ultra原失败DNG与真机待验，非全图库验收。",
+        "R03正式持久历史接线完成：与当前编辑同SQLite事务、stable variant/version ID、cursor/generation、合并/分支/配额、批量保存、智能初始建议和失败回退；跨真实进程、故障/满盘、版本隔离/原图重定位、完整图像及三格式原尺寸SHA与207总回归通过。原工具栏不变，不含历史浏览/清理页或真机持续性能验收。"
       ],
       "remaining": [
-        "跨重启撤销历史尚未持久保存；ARM真机多版本持续调节与系统恢复仍待验收。正式虚拟副本与默认/副本会话恢复本批已接通。",
+        "R03持久撤销/重做已完成本批模拟器验收；历史浏览/任意跳步/清理界面和整体数据库空间管理未包含。ARM真机版本操作、触感与系统恢复仍待；正式多版本默认/指定会话恢复与菜单已有实现。",
         "普通导入、编辑、导出与缓存统一源版本/新鲜度合同；未校验历史补基线策略；长期URI、真实厂商云端离线/撤权、满盘与ARM真机验收。",
         "无凭据孤立旧记录需原URI恢复访问；无损坏数据库恢复工具。图库批量移除已支持；评分色标整理仍为单张，批量标记/自定义相册顺序/导入归相册/跨设备同步未包含。"
       ],
@@ -518,7 +521,14 @@
         "docs/performance/render-library-performance-2026-11-14.md",
         "app/src/main/java/com/spektralab/android/engine/RawDecoder.kt",
         "app/src/androidTest/java/com/spektralab/android/RawInputAccessAudit.kt",
-        "docs/compatibility/raw-provider-recovery.md"
+        "docs/compatibility/raw-provider-recovery.md",
+        "app/src/main/java/com/spektralab/android/core/model/EditHistoryPosition.kt",
+        "app/src/main/java/com/spektralab/android/data/library/EditHistoryRepository.kt",
+        "app/src/androidTest/java/com/spektralab/android/PersistentHistoryProcessAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/PersistentHistoryStorageAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/PersistentHistoryCrashAudit.kt",
+        "app/src/androidTest/java/com/spektralab/android/PersistentHistoryEditorAudit.kt",
+        "docs/features/r03-persistent-history.md"
       ]
     },
     {
@@ -744,8 +754,8 @@
     }
   ],
   "next": [
-    "按docs/upstream-2.4.2-android-roadmap.md继续：R01/R02本范围模拟器验收完成；下一项R03持久撤销/重做历史，先revision/cursor/事务与旧记录兼容，再接编辑提交与进程重启测试，之后R04白平衡吸管。其余24项仍按依赖推进。",
-    "小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。",
+    "按docs/upstream-2.4.2-android-roadmap.md继续：R01/R02/R03本范围模拟器验收完成；下一项R04白平衡吸管，先Decode/成片WB的采样和坐标/数学合同，再接RAW/JPEG、历史/预设/批量输出。其余23项依赖及原F工作包剩余项保持。",
+    "小米15Ultra失败DNG仍待原文件；小米17Pro同NEF/同参数/驱动需要真机复测scalar-origins-v3-film-windows-1。用户本轮选模拟器，不能代替ARM或专有驱动验收。 R03同步持久化主线程P95约19.4ms（本轮模拟器样本），ARM持续编辑与尾延迟仍待验，不作60fps保证。",
     "R10及F01/F02/F03/F16继续跨节点峰值预算、阶段缓存、全入口host、持久源身份/授权、完整中断/满盘/取消矩阵与安全重试。保留精确suspend/resume和ARM连续负载验收。",
     "R06/R07/R08/R09分别接成片几何与旁路、Decode场景曲线、真实专业色彩输出、全尺寸细节；F17非中性成片工作空间与PC独立对照继续，默认CineStill一致不代表所有后期表面一致。",
     "R11半格双源项目按稳定资产/持久历史/两级几何与任务合同接入，随后R12双重曝光；保留F10原范围，单张135_half与灯台拼图不冒充该能力。",

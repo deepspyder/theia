@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import com.spektralab.android.core.model.EditorParams
+import com.spektralab.android.core.model.EditHistoryPosition
 import java.io.File
 import java.security.MessageDigest
 import org.json.JSONObject
@@ -20,6 +21,9 @@ object EditStore {
     private val failure = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val storageError: kotlinx.coroutines.flow.StateFlow<String?> = failure
     fun dismissStorageError() { failure.value = null }
+    internal fun reportHistoryFailure(context: Context) {
+        failure.value = context.getString(com.spektralab.android.R.string.photos_storage_failure)
+    }
 
     private fun directory(context: Context) = File(context.filesDir, DIR)
     private fun recover(context: Context) = EditBatchJournal(directory(context)).recover()
@@ -89,6 +93,25 @@ object EditStore {
     }
 
     @Synchronized
+    internal fun history(context: Context, uri: Uri, initial: EditorParams): EditHistoryPosition = checked {
+        read(context, uri) // Adopt a legacy sidecar through its existing backup/claim transaction.
+        repository(context).historyPosition(uri, initial.toJson().toString(), name(context, uri))
+    }
+
+    @Synchronized
+    internal fun commitHistory(context: Context, uri: Uri, params: EditorParams, group: String?,
+                               generation: Long?): EditHistoryPosition = checked {
+        val current = read(context, uri)
+        requireNotNull(repository(context).save(uri, params.toJson().toString(),
+            if (current == null) name(context, uri) else "", group, "editor", generation))
+    }
+
+    @Synchronized
+    internal fun moveHistory(context: Context, uri: Uri, generation: Long, redo: Boolean): EditHistoryPosition = checked {
+        repository(context).moveHistory(uri, generation, redo)
+    }
+
+    @Synchronized
     fun loadForTransfer(context: Context, uri: Uri): StoredEdit = checked {
         val text = read(context, uri)
         StoredEdit(text?.let {
@@ -102,7 +125,8 @@ object EditStore {
     fun saveIfAbsent(context: Context, uri: Uri, suggestion: EditorParams): EditorParams = checked {
         val stored = loadForTransfer(context, uri)
         if (stored.json != null) return@checked stored.params
-        repository(context).save(uri, suggestion.toJson().toString(), name(context, uri))
+        repository(context).save(uri, suggestion.toJson().toString(), name(context, uri), origin = "smart",
+            baseline = EditorParams().toJson().toString())
         suggestion
     }
 

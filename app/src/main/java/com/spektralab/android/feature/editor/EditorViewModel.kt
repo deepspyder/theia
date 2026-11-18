@@ -20,6 +20,7 @@ import com.spektralab.android.core.color.DisplayP3Icc
 import com.spektralab.android.core.develop.SmartDevelop
 import com.spektralab.android.core.develop.SmartDevelopStyle
 import com.spektralab.android.core.model.EditSnapshot
+import com.spektralab.android.core.model.EditHistoryPosition
 import com.spektralab.android.core.model.EditGroup
 import com.spektralab.android.core.model.EditTemplate
 import com.spektralab.android.core.model.EditTransferProblem
@@ -138,6 +139,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         batchExportSelection = batchExportSelection.mapTo(linkedSetOf()) { if (it == previous) replacement else it }
         undoHistory.remove(previous.toString())?.let { undoHistory[replacement.toString()] = it }
         redoHistory.remove(previous.toString())?.let { redoHistory[replacement.toString()] = it }
+        persistedHistory.remove(previous.toString())?.let { persistedHistory[replacement.toString()] = it }
         if (currentUri == previous) currentUri = replacement
         if (paramsUri == previous) paramsUri = replacement
         currentIndex = currentUri?.let(photos::indexOf)?.coerceAtLeast(0) ?: 0
@@ -154,7 +156,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     internal fun retrySavedEdit() {
         if (busy || isExporting || isBatchExporting || isApplyingEdits) return
         EditStore.dismissStorageError()
-        currentUri?.takeIf { it == paramsUri }?.let { EditStore.save(app, it, committedParams()) }
+        currentUri?.takeIf { it == paramsUri }?.let { if (!recordHistory()) return }
         if (workbenchChanged) persistWorkbench()
     }
     internal val editPresets by lazy { EditPresetController(app, viewModelScope) }
@@ -304,6 +306,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private var rawCamXyz: FloatArray? = null
     private val undoHistory = mutableMapOf<String, MutableList<String>>()
     private val redoHistory = mutableMapOf<String, MutableList<String>>()
+    private val persistedHistory = object : LinkedHashMap<String, EditHistoryPosition>(8, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, EditHistoryPosition>?) = size > 8
+    }
+    private var historyMergeKey: String? = null
     private var suppressHistory = false
     private var lastHistoryKey: String? = null
     private var lastHistoryEditMs = 0L
@@ -458,23 +464,50 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun refreshHistoryButtons() {
         val key = historyKey()
+        if (currentUri != null) {
+            val position = persistedHistory[key] ?: currentUri?.takeIf { it == paramsUri }?.let { uri ->
+                runCatching { EditStore.history(app, uri, committedParams()).also { persistedHistory[key] = it } }.getOrNull()
+            }
+            canUndo = position?.canUndo == true
+            canRedo = position?.canRedo == true
+            return
+        }
         canUndo = (undoHistory[key]?.size ?: 0) > 1
         canRedo = !redoHistory[key].isNullOrEmpty()
     }
 
-    private fun recordHistory() {
-        if (suppressHistory) return
+    private fun recordHistory(): Boolean {
+        if (suppressHistory) return true
         val key = historyKey()
+        val now = android.os.SystemClock.elapsedRealtime()
+        currentUri?.let { uri ->
+            if (uri != paramsUri) return true
+            var previous = persistedHistory[key]
+            return try {
+                if (previous == null) previous = EditStore.history(app, uri, committedParams())
+                if (lastHistoryKey != key || now - lastHistoryEditMs >= 350) historyMergeKey = java.util.UUID.randomUUID().toString()
+                val next = EditStore.commitHistory(app, uri, committedParams(), historyMergeKey, previous!!.generation)
+                persistedHistory[key] = next
+                if (next.generation != previous!!.generation) { lastHistoryKey = key; lastHistoryEditMs = now }
+                refreshHistoryButtons()
+                true
+            } catch (_: Exception) {
+                previous?.let { params = EditorParams.fromJson(JSONObject(it.paramsJson)) }
+                EditStore.reportHistoryFailure(app)
+                lastHistoryKey = null
+                refreshHistoryButtons()
+                false
+            }
+        }
         val snapshot = historySnapshot()
         val history = undoHistory.getOrPut(key) { mutableListOf(snapshot) }
-        if (history.lastOrNull() == snapshot) return
-        val now = android.os.SystemClock.elapsedRealtime()
+        if (history.lastOrNull() == snapshot) return true
         if (lastHistoryKey == key && now - lastHistoryEditMs < 350 && history.size > 1) {
             history[history.lastIndex] = snapshot
             redoHistory[key]?.clear()
             lastHistoryEditMs = now
             refreshHistoryButtons()
-            return
+            return true
         }
         history += snapshot
         if (history.size > 64) history.removeAt(0)
@@ -482,16 +515,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         lastHistoryKey = key
         lastHistoryEditMs = now
         refreshHistoryButtons()
+        return true
     }
 
     private fun seedHistory(uri: Uri, initial: EditorParams) {
         val key = historyKey(uri)
-        val snapshot = initial.toJson().toString()
-        if (undoHistory[key]?.lastOrNull() != snapshot) {
-            undoHistory[key] = if (freshlySmartDeveloped.remove(uri))
-                mutableListOf(EditorParams().toJson().toString(), snapshot) else mutableListOf(snapshot)
-            redoHistory.remove(key)
-        }
+        persistedHistory[key] = EditStore.history(app, uri, initial)
+        freshlySmartDeveloped.remove(uri)
         lastHistoryKey = null
         refreshHistoryButtons()
     }
@@ -500,32 +530,39 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun redo() = restoreHistory(redo = true)
 
     private fun restoreHistory(redo: Boolean) {
-        if (isApplyingEdits) return
+        if (isApplyingEdits || busy || isExporting || isBatchExporting) return
         finishCurveEdit(cancel = true)
         finishColorEdit(cancel = true)
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
         val key = historyKey()
-        val undo = undoHistory[key] ?: return
-        val redoStack = redoHistory.getOrPut(key) { mutableListOf() }
-        if (redo && redoStack.isEmpty()) return
-        if (!redo && undo.size <= 1) return
         val previous = params.copy()
-        val current = historySnapshot()
-        if (redo) {
-            val restored = redoStack.removeAt(redoStack.lastIndex)
-            undo += restored
-            params = EditorParams.fromJson(JSONObject(restored))
+        val uri = currentUri
+        if (uri != null) {
+            val position = persistedHistory[key] ?: return
+            if (redo && !position.canRedo || !redo && !position.canUndo) return
+            val restored = try { EditStore.moveHistory(app, uri, position.generation, redo) }
+            catch (_: Exception) { EditStore.reportHistoryFailure(app); return }
+            persistedHistory[key] = restored
+            params = EditorParams.fromJson(JSONObject(restored.paramsJson))
         } else {
-            redoStack += current
-            undo.removeAt(undo.lastIndex)
-            params = EditorParams.fromJson(JSONObject(undo.last()))
+            val undo = undoHistory[key] ?: return
+            val redoStack = redoHistory.getOrPut(key) { mutableListOf() }
+            if (redo && redoStack.isEmpty() || !redo && undo.size <= 1) return
+            if (redo) {
+                val restored = redoStack.removeAt(redoStack.lastIndex)
+                undo += restored
+                params = EditorParams.fromJson(JSONObject(restored))
+            } else {
+                redoStack += historySnapshot()
+                undo.removeAt(undo.lastIndex)
+                params = EditorParams.fromJson(JSONObject(undo.last()))
+            }
         }
         if (previous.cropX != params.cropX || previous.cropY != params.cropY ||
             previous.cropW != params.cropW || previous.cropH != params.cropH) {
             cropAspect = if (params.cropW >= 1f && params.cropH >= 1f) "原始" else "自定义"
         }
-        currentUri?.let { EditStore.save(app, it, committedParams()) }
         refreshHistoryButtons()
         lastHistoryKey = null
         suppressHistory = true
@@ -614,22 +651,17 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         renderProgress = null
         viewModelScope.launch {
             try {
-                withContext(NonCancellable + Dispatchers.IO) {
+                val histories = withContext(NonCancellable + Dispatchers.IO) {
                     changes.forEach { change ->
                         app.contentResolver.openAssetFileDescriptor(change.uri, "r")?.close()
                             ?: error("SOURCE_UNAVAILABLE")
                     }
                     EditStore.saveBatch(app, changes.map { EditStore.BatchEdit(it.uri, it.expectedJson, it.after!!.json) })
+                    changes.associate { it.uri to EditStore.history(app, it.uri, it.after!!.toParams()) }
                 }
                 for (change in changes) {
                     val key = historyKey(change.uri)
-                    val before = change.before.toParams().toJson().toString()
-                    val after = change.after!!.toParams().toJson().toString()
-                    val history = undoHistory.getOrPut(key) { mutableListOf(before) }
-                    if (history.lastOrNull() != before) history += before
-                    if (history.lastOrNull() != after) history += after
-                    while (history.size > 64) history.removeAt(0)
-                    redoHistory.remove(key)
+                    persistedHistory[key] = histories.getValue(change.uri)
                     freshlySmartDeveloped.remove(change.uri)
                     developedPreviews = developedPreviews - change.uri
                     discardGalleryPreview(change.uri)
@@ -921,9 +953,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun scheduleGrade(commit: Boolean = true) {
         if (isApplyingEdits) return
         if (!hasPhoto || isExporting || isBatchExporting) return
-        if (commit) recordHistory()
+        if (commit && !recordHistory()) return
         dirty = true
-        if (commit) currentUri?.let { EditStore.save(app, it, committedParams()) }
         gradeRequest++
         if (wbJob?.isActive == true) return
         wbJob = viewModelScope.launch {
@@ -1087,8 +1118,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // 相机白平衡（解码侧，仅 RAW）：Kelvin/tint 变化后去抖重新解码 + 重开会话。
     fun scheduleCameraWb() {
         if (!currentIsRaw || !hasPhoto) return
-        recordHistory()
-        currentUri?.let { EditStore.save(app, it, committedParams()) }
+        if (!recordHistory()) return
         val uri = currentUri ?: return
         val photo = photoGeneration
         val editParams = EditSnapshot.capture(params).toParams()
@@ -1257,7 +1287,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun scheduleRender(immediate: Boolean) {
         if (isApplyingEdits) return
         if (isExporting || isBatchExporting) return
-        recordHistory()
+        if (!recordHistory()) return
         val e = engine ?: return
         if (!hasPhoto) return
         dirty = true
@@ -1286,11 +1316,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         e.setChangedParams(delta)
                         // UI post edits may be newer than this debounced native request. Keep saves
                         // ordered with those edits instead of writing the older render snapshot.
-                        withContext(Dispatchers.Main.immediate) {
+                        val saved = withContext(Dispatchers.Main.immediate) {
                             if (photo == photoGeneration && generation == renderGeneration && uri == currentUri) {
-                                uri?.let { EditStore.save(app, it, committedParams()) }
-                            }
+                                recordHistory()
+                            } else false
                         }
+                        if (!saved) return@onEngine
                         val r = e.render("live")
                         if (photo != photoGeneration || generation != renderGeneration) return@onEngine
                         withContext(Dispatchers.Main.immediate) { stockPreviewJob?.cancel() }
@@ -2191,7 +2222,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         finishColorEdit(cancel = true)
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
-        currentUri?.takeIf { it == paramsUri }?.let { EditStore.save(app, it, params) }
+        currentUri?.takeIf { it == paramsUri }?.let { recordHistory() }
     }
 
     // 懒加载单个缩略图（滚到才解码）。
