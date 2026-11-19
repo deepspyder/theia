@@ -145,7 +145,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
         historyStorageOnly = audit == "history-storage"
         historyProcessPhase = audit?.removePrefix("history-process-")?.takeIf { it in setOf("seed", "verify", "branch") }
-        exportOptionsMode = audit?.takeIf { it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
+        exportOptionsMode = audit?.takeIf { it.startsWith("export-tasks-") || it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
         legacyUiOnly = audit == "legacy-ui"
         exportMatrixPart = arguments?.getString("matrixPart")?.takeIf { audit == "export-matrix" }
@@ -371,6 +371,12 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         exportOptionsMode?.let { mode ->
             case(mode) {
                 when (mode) {
+                    "export-tasks-storage" -> ExportTasksStorageAudit(this,output).run()
+                    "export-tasks-editor" -> ExportTasksEditorAudit(this,output).run()
+                    "export-tasks-layout" -> ExportTasksEditorAudit(this,output).run(true)
+                    "export-tasks-process-seed" -> ExportTasksProcessAudit(this,output).seed(false)
+                    "export-tasks-process-verify" -> ExportTasksProcessAudit(this,output).verify()
+                    "export-tasks-worker" -> ExportTasksProcessAudit(this,output).seed(true)
                     "detail-core" -> FullDetailAudit(this,output).core()
                     "detail-large" -> FullDetailAudit(this,output).large()
                     "detail-editor" -> FullDetailEditorAudit(this,output).run(false,false)

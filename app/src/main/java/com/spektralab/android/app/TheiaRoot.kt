@@ -143,6 +143,7 @@ internal fun TheiaRoot(vm: EditorViewModel) {
           }
         }
 
+        if(vm.exportTasks.opened)com.spektralab.android.feature.export.ExportTasksScreen(vm,Modifier.fillMaxSize())
         storageError?.let { message ->
             AlertDialog(onDismissRequest = com.spektralab.android.data.local.EditStore::dismissStorageError,
                 title = { Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.photos_save_error)) },

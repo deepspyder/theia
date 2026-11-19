@@ -165,6 +165,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
     private val sessionPersistence by lazy { EditSessionPersistence(app, viewModelScope) }
     internal val detail = DetailController(viewModelScope)
+    internal val exportTasks = com.spektralab.android.feature.export.ExportTasksController(app, viewModelScope)
     private var preparingDetail = false
     private var workbenchChanged = false
 
@@ -465,6 +466,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             papers = p
         }
         createEngine()
+        viewModelScope.launch { runCatching { com.spektralab.android.data.export.ExportCoordinator.get(app).recover() } }
         viewModelScope.launch {
             try { heifAvailable = withContext(Dispatchers.IO) { com.spektralab.android.data.export.HeifOutput.capability(app).available } }
             catch (_: Exception) { heifAvailable = false }
@@ -1875,6 +1877,68 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }.invokeOnCompletion { hostLease.close() }
     }
 
+    /** Explicit full retry of the original immutable job, never a guessed partial render resume. */
+    internal fun retryExportTask(id: String) {
+        val e = engine ?: return
+        if (busy || isExporting || isBatchExporting || exportTasks.loading) return
+        val original = exportTasks.entries.firstOrNull { it.id == id } ?: return
+        val request = original.request ?: return
+        if (!original.retryable) return
+        if (request.options.format == "HEIF" && !heifAvailable) {
+            exportTasks.failed(app.getString(R.string.output_heif_unavailable)); return
+        }
+        val interrupted = pendingPreviewWork()
+        exportTasks.clearError()
+        val lease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
+            catch (error: Exception) { exportTasks.failed(error.message ?: "无法启动导出服务"); return }
+        isExporting = true; exportCancelRequested = false; isExportCommitCompleted = false
+        renderProgress = 0f; renderStage = "校验原任务与原图"
+        viewModelScope.launch {
+            engineTasks.run("retry-export") {
+                var claimed = false; var restore = false
+                val store = com.spektralab.android.data.export.ExportJobStore(app)
+                try {
+                    com.spektralab.android.data.export.ExportCoordinator.get(app).recover()
+                    val entry = withContext(Dispatchers.IO) { store.claimRetry(id) }.also { claimed = true }
+                    val frozen = checkNotNull(entry.request)
+                    val uri = Uri.parse(checkNotNull(entry.sourceReference))
+                    val result = com.spektralab.android.data.export.PhotoExportPipeline(app).write(
+                        uri, frozen.sourceName, frozen.edit, frozen.options, ::checkExportCancellation,
+                        beforeNative = { withContext(engineDispatcher) { restore = true; e.park(); RenderAdmission.check(app) } },
+                        progress = { stage, percent -> renderStage = exportStageLabel(stage); renderProgress = percent },
+                        frozen = frozen,
+                    ) { pixels, metadata, task ->
+                        activeExportTask = task
+                        saveNativeResult(pixels, System.currentTimeMillis().toString(), frozen.edit.toParams(), frozen.options, metadata)
+                    }
+                    append("任务重新导出: ${result.width}×${result.height} → ${result.path}")
+                } catch (error: Throwable) {
+                    if (error !is Exception && error !is OutOfMemoryError) throw error
+                    if (claimed && !isExportCommitCompleted) withContext(NonCancellable + Dispatchers.IO) {
+                        runCatching { if(store.entries().firstOrNull {it.id==id}?.state==com.spektralab.android.data.export.ExportJobStore.State.QUEUED)
+                            store.write(request, if (exportCancelRequested || error is CancellationException ||
+                            error.message.orEmpty().contains("cancel", true)) com.spektralab.android.data.export.ExportJobStore.State.CANCELLED
+                            else com.spektralab.android.data.export.ExportJobStore.State.FAILED, error = error.message ?: error.javaClass.simpleName) }
+                    }
+                    exportTasks.failed(if (exportCancelRequested) "重新导出已取消" else error.message ?: "重新导出失败")
+                } finally {
+                    activeExportTask = null
+                    if (restore && previewLinear != null) {
+                        try {
+                            withContext(NonCancellable) { lease.releaseDevice() }
+                            withContext(NonCancellable + engineDispatcher) {
+                                e.open(checkNotNull(previewLinear), previewW, previewH, 3,
+                                    params.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace))
+                            }
+                        } catch (error: Exception) { append("恢复预览: ${error.message}") }
+                    }
+                    isExporting = false; exportCancelRequested = false; isExportCommitCompleted = false
+                    renderProgress = null; renderStage = ""; exportTasks.refresh(); resumePreview(interrupted)
+                }
+            }
+        }.invokeOnCompletion { lease.close() }
+    }
+
     internal fun cancelTableProjectExport() {
         if (!isExporting || isExportCommitCompleted) return
         exportCancelRequested = true
@@ -2894,7 +2958,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         return options.naming.stem(frozen?.sourceName ?: currentUri?.let(::queryDisplayName).orEmpty(),
             films.firstOrNull { it.id == chosen.filmId }?.name ?: chosen.filmId,
             papers.firstOrNull { it.id == chosen.paperId }?.name ?: chosen.paperId,
-            java.time.LocalDate.now().toString(), suffix)
+            frozen?.namingDate?.takeIf { it.isNotEmpty() } ?: java.time.LocalDate.now().toString(),
+            frozen?.submittedAt?.takeIf { it > 0 }?.toString() ?: suffix)
     }
 
     fun exportNameExample(): String {

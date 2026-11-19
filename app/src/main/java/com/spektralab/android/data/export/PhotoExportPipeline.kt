@@ -19,8 +19,9 @@ internal class PhotoExportPipeline(private val context: Context) {
                       check: () -> Unit, beforeNative: suspend () -> Unit,
                       progress: (String, Float) -> Unit,
                       recordReceipt: Boolean = true,
+                      frozen: com.spektralab.android.core.model.ExportFrameRequest? = null,
                       encode: (Rgba16Source, ExportMetadata, ExportCoordinator.Task) -> String): Output =
-        ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt) { task, source ->
+        ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt, frozen) { task, source ->
             val metadata = withContext(Dispatchers.IO) {
                 val exif = runCatching { ExifInterface(source.descriptor.fileDescriptor) }.getOrNull()
                 ExportMetadata.from(exif, options.keepCapture, options.keepLocation)

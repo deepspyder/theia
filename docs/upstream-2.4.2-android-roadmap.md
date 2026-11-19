@@ -101,3 +101,5 @@ R04已完成，见[灰点白平衡吸管](features/r04-neutral-white-balance.md)
 R05已完成，见[设置、缓存与诊断入口](features/r05-settings-cache-diagnostics.md)：偏好与旧编辑隔离、三档预览、默认材料、动态成片缓存预算/租约保护清理、系统保存框诊断ZIP；真实不可写目录/取消/重启和207项总回归通过。
 
 R06已完成，见[成片几何与旁路](features/r06-scene-geometry.md)。R07已完成，见[Decode场景曲线](features/r07-decode-scene-curves.md)。R08已完成，见[专业SDR输出](features/r08-professional-output.md)：四空间真实变换/ICC、设备探测HEIF主图配置、可选TIFF16 Deflate，435执行行含两次207总回归和28截图fresh ship；完整NEF逐样本核对。R09已完成，见[原尺寸细节与打样](features/r09-full-detail.md)：冻结全尺寸成片/U16匿名存储、可见512px F16瓦片/64MiB持有预算、100%屏幕像素坐标及文件/显示分离，56,696,832通道、50MP/超宽、真实NEF与220执行行/20截图ship。**下一批R10持久任务安全重试与宿主化**。当前R01—R09共9项完成，第一阶段5/5，R10—R26共17项尚未交付；首次显影峰值、API26/ARM/物理P3屏幕验证边界保留。
+
+R10-A持久任务安全重新导出专项完成，见[任务恢复](features/r10-durable-export-tasks.md)：冻结源/种子/选项/命名时间与APK身份、原子重试/已提交去重、同原图重选，真实主进程/worker退出后完整TIFF16保持、20截图独立SHIP。R10仍未勾选：继续DI/灯台/后期/编码宿主迁移、阶段缓存/峰值预算和完整故障矩阵。

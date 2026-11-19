@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tasks_title">导出任务</string>
+    <string name="tasks_empty">尚无导出任务</string>
+    <string name="tasks_hint">中断的任务可按原编辑、随机种子和输出配置重新导出。重试前会核对原图，已完成的文件不会重复发布。保留最近 32 条已结束任务，原图和成片不受影响。</string>
+    <string name="tasks_retry">重新导出</string>
+    <string name="tasks_relink">重新选择同一原图</string>
+    <string name="tasks_remove">移除任务记录</string>
+    <string name="tasks_remove_hint">只移除任务记录，原图和已导出文件都会保留。</string>
+    <string name="tasks_legacy">旧任务未记录可恢复的源图地址，请从原图重新导出。</string>
+    <string name="tasks_attempt">执行次数：%1$d</string>
+</resources>

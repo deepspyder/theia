@@ -110,6 +110,9 @@ internal fun HomeScreen(
                             Icon(Icons.Rounded.Tune, "更多操作", modifier = Modifier.size(20.dp))
                         }
                         DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
+                            DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.tasks_title))},
+                                enabled=!vm.busy && !vm.isExporting && !vm.isBatchExporting,
+                                onClick={moreExpanded=false;vm.exportTasks.open()})
                             DropdownMenuItem(
                                 text = { Text(androidx.compose.ui.res.stringResource(com.spektralab.android.R.string.settings_title)) },
                                 enabled = !vm.busy && !vm.isExporting && !vm.isBatchExporting,
