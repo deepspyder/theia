@@ -145,7 +145,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
         historyStorageOnly = audit == "history-storage"
         historyProcessPhase = audit?.removePrefix("history-process-")?.takeIf { it in setOf("seed", "verify", "branch") }
-        exportOptionsMode = audit?.takeIf { it.startsWith("di-host") || it.startsWith("export-tasks-") || it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
+        exportOptionsMode = audit?.takeIf { it in setOf("table-host", "table-host-ui") || it.startsWith("di-host") || it.startsWith("export-tasks-") || it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
         legacyUiOnly = audit in setOf("legacy-ui", "legacy-editor")
         legacyEditorOnly = audit == "legacy-editor"
@@ -373,6 +373,8 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         exportOptionsMode?.let { mode ->
             case(mode) {
                 when (mode) {
+                    "table-host" -> TableHostAudit(this,output).run()
+                    "table-host-ui" -> TableOutputUiAudit(this,output).run()
                     "di-host" -> DigitalIntermediateHostAudit(this,output).native()
                     "di-host-application" -> DigitalIntermediateHostAudit(this,output).application()
                     "di-host-raw" -> DigitalIntermediateHostAudit(this,output).raw()

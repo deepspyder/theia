@@ -88,7 +88,6 @@ import org.json.JSONObject
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
     private class ExportCancelled : CancellationException("Export cancelled")
     @Volatile private var exportCancelRequested = false
-    @Volatile private var tableNativeRendering = false
 
     private fun checkExportCancellation() {
         if (exportCancelRequested || cleared) throw ExportCancelled()
@@ -1953,7 +1952,6 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (!isExporting || isExportCommitCompleted) return
         exportCancelRequested = true
         renderStage = app.getString(com.spektralab.android.R.string.table_output_cancelling)
-        if (tableNativeRendering) engine?.cancel()
     }
 
     /** Uses the same serialized owner, decoder, grade and cache as ordinary photo output. */
@@ -1966,6 +1964,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val activeUri = currentUri
         val activeParams = EditSnapshot.capture(committedParams()).toParams()
         val correctLens = lensCorrectionActive
+        val hostLease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
+            catch (failure: Exception) { onFinished(Result.failure(failure)); return true }
         isExporting = true; exportCancelRequested = false; isExportCommitCompleted = false
         renderProgress = 0f; renderStage = app.getString(com.spektralab.android.R.string.table_output_preparing)
         viewModelScope.launch {
@@ -1992,39 +1992,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                                     bitmap = decodeBitmapForExport(Uri.parse(input.source.uri), input.requestedEdge)
                                 }
                             } else {
-                                val p = input.params.toParams()
-                                val geometry = JSONObject(p.openJson(input.evidence.width.coerceAtLeast(1), input.evidence.height.coerceAtLeast(1)))
-                                val crop = (minOf(geometry.optDouble("geometry_crop_w", 1.0), geometry.optDouble("geometry_crop_h", 1.0)) * minOf(p.finishedCrop.width, p.finishedCrop.height)).coerceAtLeast(.0001)
-                                val resolution = kotlin.math.ceil(input.requestedEdge / crop).toInt().coerceAtLeast(1)
-                                check(resolution <= com.spektralab.android.data.export.TableExportSession.MAX_INPUT_EDGE) { "TABLE_EXPORT_CAPACITY" }
-                                val options = ExportOptions("PNG", resolution, "sRGB", 100, false, false, correctLens)
-                                val uri = Uri.parse(input.source.uri)
-                                val cacheRequest = withContext(Dispatchers.IO) { renderCache.prepare(uri, p, options, ::checkExportCancellation) }
-                                var lease: com.spektralab.android.data.cache.RenderDiskCache.Lease? = null
-                                try {
-                                    withContext(Dispatchers.IO) { lease = cacheRequest?.let { renderCache.acquire(it, ::checkExportCancellation) } }
-                                    val cached = lease
-                                    if (cached != null) withContext(Dispatchers.IO) {
-                                        com.spektralab.android.data.export.TableExportSession.checkSourceSize(cached.width, cached.height)
-                                        val finished = com.spektralab.android.data.export.FinishedRgba16Source.wrap(cached, grade(p), p.finishedCrop, ::checkExportCancellation)
-                                        bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(finished,
-                                            if (finished.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(p), ::checkExportCancellation)
-                                    } else withContext(engineDispatcher) {
-                                        RenderAdmission.check(app); needsRestore = true
-                                        openExportSource(e, uri, p, resolution, "sRGB", options)
-                                        tableNativeRendering = true
-                                        try { e.renderExportOnce().use { result ->
-                                            checkExportCancellation(); e.closeSession()
-                                            withContext(Dispatchers.IO) {
-                                                if (cacheRequest != null) renderCache.store(cacheRequest, uri, result, ::checkExportCancellation)
-                                                com.spektralab.android.data.export.TableExportSession.checkSourceSize(result.width, result.height)
-                                                val finished = com.spektralab.android.data.export.FinishedRgba16Source.wrap(result, grade(p), p.finishedCrop, ::checkExportCancellation)
-                                        bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(finished,
-                                            if (finished.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else grade(p), ::checkExportCancellation)
-                                            }
-                                        } } finally { tableNativeRendering = false }
-                                    }
-                                } finally { lease?.close() }
+                                bitmap = com.spektralab.android.data.export.TablePhotoRenderer(app).render(
+                                    input, correctLens, ::checkExportCancellation,
+                                    beforeNative = { withContext(engineDispatcher) {
+                                        needsRestore = true; e.park(); RenderAdmission.check(app)
+                                    } },
+                                    progress = { _, percent ->
+                                        renderProgress = ((index + percent / 100f) * 80f / transaction.inputs.size).coerceAtMost(80f)
+                                    },
+                                )
                             }
                             withContext(Dispatchers.IO) { transaction.stage(input, requireNotNull(bitmap)) }
                         } finally { bitmap?.recycle() }
@@ -2045,12 +2021,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     outcome = Result.failure(failure)
                 } finally {
                     withContext(NonCancellable + Dispatchers.IO) { session?.close() }
-                    if (needsRestore && !cleared) withContext(NonCancellable + engineDispatcher) {
+                    if (needsRestore && !cleared) withContext(NonCancellable) {
                         runCatching {
-                            e.closeSession()
-                            previewLinear?.let { pl -> e.open(pl, previewW, previewH, 3,
-                                activeParams.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace)) }
-                            sourceExif = activeUri?.let(::readExif)
+                            hostLease.releaseDevice()
+                            withContext(engineDispatcher) {
+                                previewLinear?.let { pl -> e.open(pl, previewW, previewH, 3,
+                                    activeParams.previewOpenJson(previewW, previewH, inputColorSpace = previewInputColorSpace)) }
+                                sourceExif = activeUri?.let(::readExif)
+                            }
                         }.onFailure { android.util.Log.e("TableExport", "Preview session restore failed", it) }
                     }
                     withContext(NonCancellable + Dispatchers.Main.immediate) {
@@ -2063,7 +2041,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
             }
-        }
+        }.invokeOnCompletion { hostLease.close() }
         return true
     }
 

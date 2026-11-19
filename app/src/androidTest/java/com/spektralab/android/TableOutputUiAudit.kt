@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.SystemClock
 import android.os.Bundle
 import android.provider.MediaStore
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
@@ -44,7 +45,10 @@ internal class TableOutputUiAudit(private val test: Instrumentation, private val
             brightness=if(index==0)18f else -7f;grainActive=false;glareActive=false
         }) }
         activity=test.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
-        test.runOnMainSync{vm=ViewModelProvider(activity)[EditorViewModel::class.java]}
+        test.runOnMainSync {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            vm = ViewModelProvider(activity)[EditorViewModel::class.java]
+        }
         await{vm.engine!=null&&!vm.busy}
         val automatic = vm.smartAutoEnabled
         var projectId: String? = null
@@ -54,7 +58,20 @@ internal class TableOutputUiAudit(private val test: Instrumentation, private val
             test.runOnMainSync { activity.setContent { TheiaTheme {
                 GalleryScreen(vm,onImport={},onBackToDarkroom={},onRemovePhoto={},onEditPhoto={},canvasState=rememberFilmCanvasState())
             } } }
-            await{find("导出观景台")!=null}
+            val exportLabel = activity.getString(R.string.table_output)
+            try {
+                await { find(exportLabel) != null }
+            } catch (failure: IllegalStateException) {
+                val labels = mutableListOf<String>()
+                fun collect(node: AccessibilityNodeInfo?) {
+                    if (node == null || labels.size >= 40) return
+                    (node.text ?: node.contentDescription)?.let { labels.add(it.toString()) }
+                    for (index in 0 until node.childCount) collect(node.getChild(index))
+                }
+                val window = root()
+                collect(window)
+                error("Missing $exportLabel; window=${window?.packageName}; photos=${vm.photos.size}; error=${vm.errorMessage}; labels=$labels")
+            }
             capture("output-entry.png")
             click("保存项目")
             fun editable(node:AccessibilityNodeInfo?):AccessibilityNodeInfo?{
@@ -70,7 +87,7 @@ internal class TableOutputUiAudit(private val test: Instrumentation, private val
             await{vm.lightTableProjects.current!=null&&!vm.lightTableProjects.pending}
             projectId=vm.lightTableProjects.current!!.id
             val savedProject=vm.lightTableProjects.current!!
-            click("导出观景台");ready();capture("output-poster.png")
+            click(exportLabel);ready();capture("output-poster.png")
             click("照片印样");click("1600 px");click("方形");click("照片编号");ready();capture("output-contact.png")
             check(vm.lastResult===frame && EditSnapshot.capture(vm.params)==params)
             click("含观景台");click("透明背景");ready();capture("output-transparent.png")
@@ -173,9 +190,14 @@ internal class TableOutputUiAudit(private val test: Instrumentation, private val
     }
     private fun capture(name:String){test.waitForIdleSync();SystemClock.sleep(1000)
         if(name!="output-entry.png") repeat(40) { if(find("生成并保存")==null) SystemClock.sleep(50) }
-        val image=checkNotNull(test.uiAutomation.takeScreenshot())
+        val deadline = SystemClock.elapsedRealtime() + 10_000L
+        var screenshot = test.uiAutomation.takeScreenshot()
+        while (screenshot == null && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(250)
+            screenshot = test.uiAutomation.takeScreenshot()
+        }
+        val image = checkNotNull(screenshot) { "Unable to capture project output screenshot $name" }
         try {
-            File(output,name).outputStream().use{image.compress(Bitmap.CompressFormat.PNG,100,it)}
             if(name!="output-entry.png"){
                 val footer=find("生成并保存")?:error("Output footer missing in $name")
                 var button=footer

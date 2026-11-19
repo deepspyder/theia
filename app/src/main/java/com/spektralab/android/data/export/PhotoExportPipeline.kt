@@ -21,6 +21,7 @@ internal class PhotoExportPipeline(private val context: Context) {
                       recordReceipt: Boolean = true,
                       frozen: com.spektralab.android.core.model.ExportFrameRequest? = null,
                       artifact: com.spektralab.android.core.model.ExportArtifact = frozen?.artifact ?: com.spektralab.android.core.model.ExportArtifact.FINISHED,
+                      validateRendered: (Rgba16Source) -> Unit = {},
                       encode: (Rgba16Source, ExportMetadata, ExportCoordinator.Task) -> String): Output =
         ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt, frozen, artifact) { task, source ->
             val metadata = withContext(Dispatchers.IO) {
@@ -38,6 +39,8 @@ internal class PhotoExportPipeline(private val context: Context) {
                 suspend fun save(result: Rgba16Source): Output {
                     check(); progress("encoding", 96f)
                     return withContext(Dispatchers.IO) {
+                        // Apply caller capacity limits before cropping can hide an oversized raster.
+                        validateRendered(result)
                         task.phase(ExportJobStore.State.ENCODING)
                         if(artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE) {
                             val path=encode(result,metadata,task);task.succeeded(path)
