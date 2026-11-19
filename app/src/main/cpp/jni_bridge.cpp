@@ -535,6 +535,19 @@ Java_com_spektralab_android_engine_EngineClient_nativeRenderDigitalIntermediate(
     return obj;
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_spektralab_android_engine_EngineClient_nativeRenderDigitalIntermediateResolved(
+    JNIEnv* env, jobject object, jlong enginePtr, jlong sessionPtr, jlong filmSeed, jlong printSeed) {
+    if (filmSeed < 0 || filmSeed > 0xffffffffLL || printSeed < 0 || printSeed > 0xffffffffLL) {
+        env->ThrowNew(env->FindClass(kSpkExceptionClass), "Invalid DI random identity");
+        return nullptr;
+    }
+    const theia::export_execution::RealisationScope identity{uint32_t(filmSeed), uint32_t(printSeed)};
+    theia::export_execution::Scope execution;
+    return Java_com_spektralab_android_engine_EngineClient_nativeRenderDigitalIntermediate(
+        env, object, enginePtr, sessionPtr);
+}
+
 // ---- 控制 -----------------------------------------------------------------
 
 JNIEXPORT void JNICALL

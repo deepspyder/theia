@@ -231,6 +231,12 @@ class EngineClient private constructor(
     fun renderDigitalIntermediate(): NativeRenderResult =
         requireSession { check(!sceneBinding.filmOff) { "DI requires film emulation" };nativeRenderDigitalIntermediate(enginePtr, sessionPtr) }
 
+    internal fun renderDigitalIntermediateResolved(filmSeed:Long,printSeed:Long):NativeRenderResult {
+        try {return requireSession {check(!sceneBinding.filmOff){"DI requires film emulation"}
+            nativeRenderDigitalIntermediateResolved(enginePtr,sessionPtr,filmSeed,printSeed)}}
+        finally {closeSession()}
+    }
+
     // ---- 控制 / 色彩 ------------------------------------------------------
 
     /**
@@ -324,6 +330,7 @@ class EngineClient private constructor(
     private external fun nativePreviewStockLut(enginePtr: Long, sessionPtr: Long, printStock: String, tier: String): SpkResult
     private external fun nativeExportDi(enginePtr: Long, sessionPtr: Long, printStock: String?): SpkResult
     private external fun nativeRenderDigitalIntermediate(enginePtr: Long, sessionPtr: Long): NativeRenderResult
+    private external fun nativeRenderDigitalIntermediateResolved(enginePtr:Long,sessionPtr:Long,filmSeed:Long,printSeed:Long):NativeRenderResult
     private external fun nativeCancel(sessionPtr: Long, progressId: String?)
     private external fun nativeProgress(enginePtr: Long, sessionPtr: Long, progressId: String?): String
     private external fun nativeOutputTransform(

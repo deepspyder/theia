@@ -1788,17 +1788,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (work.render) scheduleRender() else if (work.grade) scheduleGrade(commit = false)
     }
 
-    fun export() {
+    fun export() = submitPhotoExport(com.spektralab.android.core.model.ExportArtifact.FINISHED)
+
+    private fun submitPhotoExport(artifact: com.spektralab.android.core.model.ExportArtifact) {
         val e = engine ?: return
         if (!hasPhoto || isExporting || isBatchExporting || busy) return
-        if (exportFormat == "HEIF" && !heifAvailable) { fail(app.getString(R.string.output_heif_unavailable)); return }
+        if (artifact == com.spektralab.android.core.model.ExportArtifact.FINISHED && exportFormat == "HEIF" && !heifAvailable) { fail(app.getString(R.string.output_heif_unavailable)); return }
         finishMixerEdit(cancel = true)
         finishWheelEdit(cancel = true)
-        if (params.unreadableColorWheels != null) { fail(app.getString(com.spektralab.android.R.string.wheels_unsupported)); return }
-        if (params.unreadableChannelMixer != null) { fail(app.getString(com.spektralab.android.R.string.mixer_unsupported)); return }
-        if (params.unreadableColorAdjustments != null) { fail(app.getString(com.spektralab.android.R.string.color_unsupported)); return }
+        if (artifact == com.spektralab.android.core.model.ExportArtifact.FINISHED && params.unreadableColorWheels != null) { fail(app.getString(com.spektralab.android.R.string.wheels_unsupported)); return }
+        if (artifact == com.spektralab.android.core.model.ExportArtifact.FINISHED && params.unreadableChannelMixer != null) { fail(app.getString(com.spektralab.android.R.string.mixer_unsupported)); return }
+        if (artifact == com.spektralab.android.core.model.ExportArtifact.FINISHED && params.unreadableColorAdjustments != null) { fail(app.getString(com.spektralab.android.R.string.color_unsupported)); return }
         if (params.unreadableSceneCurves != null && !params.filmOff) { fail(app.getString(R.string.scene_curve_unsupported)); return }
-        if (params.unreadableToneCurves != null) { fail(app.getString(com.spektralab.android.R.string.curve_unsupported)); return }
+        if (artifact == com.spektralab.android.core.model.ExportArtifact.FINISHED && params.unreadableToneCurves != null) { fail(app.getString(com.spektralab.android.R.string.curve_unsupported)); return }
         val interruptedPreview = pendingPreviewWork()
         val uri = currentUri ?: return
         val hostLease = try { com.spektralab.android.engine.host.RenderHostLease.begin(app) }
@@ -1807,7 +1809,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         exportCancelRequested = false
         isExportCommitCompleted = false
         val exportParams = EditSnapshot.capture(params).toParams()
-        val options = captureExportOptions()
+        val options = if(artifact == com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
+            ExportOptions("TIFF",exportRes,"sRGB",jpegQuality,exportKeepCapture,exportKeepLocation,lensCorrectionActive,
+                naming=exportNaming.copy(tokens=exportNaming.tokens.toList()))
+            else captureExportOptions()
         renderProgress = 0f
         renderStage = "准备导出"
         viewModelScope.launch {
@@ -1817,6 +1822,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     val output = com.spektralab.android.data.export.PhotoExportPipeline(app).write(
                         uri, queryDisplayName(uri) ?: "photo", EditSnapshot.capture(exportParams), options,
                         ::checkExportCancellation,
+                        artifact = artifact,
                         beforeNative = {
                             withContext(engineDispatcher) {
                                 needsRestore = true
@@ -1831,10 +1837,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         },
                     ) { result, metadata, task ->
                         activeExportTask = task
-                        saveNativeResult(result, System.currentTimeMillis().toString(), exportParams, options, metadata)
+                        if(artifact == com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
+                            saveDiTiff(result,task.request.submittedAt.toString(),options,metadata)
+                        else saveNativeResult(result, task.request.submittedAt.toString(), exportParams, options, metadata)
                     }
-                    append("导出成功: ${output.width}×${output.height} → ${output.path}")
-                    toast("已导出到相册")
+                    append("${if(artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)"DI 导出" else "导出成功"}: ${output.width}×${output.height} → ${output.path}")
+                    toast(if(artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)"DI 已导出" else "已导出到相册")
                     renderProgress = 100f
                     renderStage = "导出完成"
                     delay(250)
@@ -1909,7 +1917,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         frozen = frozen,
                     ) { pixels, metadata, task ->
                         activeExportTask = task
-                        saveNativeResult(pixels, System.currentTimeMillis().toString(), frozen.edit.toParams(), frozen.options, metadata)
+                        if(frozen.artifact == com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
+                            saveDiTiff(pixels,frozen.submittedAt.toString(),frozen.options,metadata)
+                        else saveNativeResult(pixels, frozen.submittedAt.toString(), frozen.edit.toParams(), frozen.options, metadata)
                     }
                     append("任务重新导出: ${result.width}×${result.height} → ${result.path}")
                 } catch (error: Throwable) {
@@ -2718,21 +2728,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // DI TIFF：按导出分辨率读取原片，输出 Cineon log 16-bit，不套 Layer 2、不嵌 ICC。
     fun exportDi() {
         if (params.filmOff) { toast(app.getString(R.string.scene_di_unavailable)); return }
-        runExportAction("DI TIFF", exportRes, "sRGB") { e, _, _, _, options ->
-            val result = withContext(engineDispatcher) { e.renderDigitalIntermediate() }
-            try {
-                checkExportCancellation()
-                renderProgress = 96f
-                renderStage = "写入 DI TIFF"
-                val path = withContext(Dispatchers.IO) {
-                    saveDiTiff(result, System.currentTimeMillis().toString(), options)
-                }
-                append("DI 导出: ${result.width}×${result.height} → $path")
-                toast("DI 已导出")
-            } finally {
-                result.close()
+        if(currentUri==null) {
+            // The generated demo has no durable source descriptor. Preserve its existing local path.
+            runExportAction("DI TIFF",exportRes,"sRGB") {e,_,_,_,options->
+                val result=withContext(engineDispatcher){e.renderDigitalIntermediate()}
+                try {
+                    checkExportCancellation()
+                    val path=withContext(Dispatchers.IO){saveDiTiff(result,System.currentTimeMillis().toString(),options)}
+                    append("DI 导出: ${result.width}×${result.height} → $path");toast("DI 已导出")
+                }finally{result.close()}
             }
+            return
         }
+        submitPhotoExport(com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
     }
 
     // 软打样：按导出尺寸/色彩空间重渲染并显示，不保存文件。
@@ -3007,7 +3015,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // DI TIFF：无调色、无 ICC（设备 RGB 密度）。
-    private fun saveDiTiff(result: NativeRenderResult, suffix: String, options: ExportOptions): String {
+    private fun saveDiTiff(result: Rgba16Source, suffix: String, options: ExportOptions,
+        metadata: ExportMetadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation)): String {
         val name = "Theia_DI_$suffix.tiff"
         return exportPublisher().write(name, "image/tiff") { out ->
             TiffWriter.writeNative(
@@ -3016,7 +3025,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 icc = null,
                 out = out,
                 checkCancelled = ::checkExportCancellation,
-                metadata = ExportMetadata.from(sourceExif, options.keepCapture, options.keepLocation),
+                metadata = metadata,
             )
         }
     }

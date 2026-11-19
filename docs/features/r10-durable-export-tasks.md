@@ -22,3 +22,5 @@
 工程构建Debug/AndroidTest/Release/Lint通过，零Error/78Warning/21Hint，15工具测试与依赖边界通过；202个native/engine条目与R09逐字节相同。Release0.1.7/code8、58,776,750字节，SHA256 `9f4858f026514190584e959092af04740828a9cb6bf03fa2ff9308969960b56d`，原证书V1/V2/V3和16KiB APK对齐通过。app/release及APK不提交。
 
 本批没有实现GPU阶段中途续算、App离线后台自动续跑、DI/灯台/编码全部宿主化或源/负片新缓存；R10总体仍进行中。Android厂商后台调度/真实撤权provider/云端中断/满盘各断点仍要按后续范围补验，不能由本轮主进程/worker终止和普通源改变推导全部完成。自动审批曾数次超时，重试成功后才执行；早期应用错误提示清空红测和一次ADB结果拉取失败记录保留，未计为通过的总验收。
+
+后续补验（相同R10-A应用，2026-11-19）：总入口保留194 PASS/13 FAIL的原始记录，不能写成207/207。其中12项在ADB外层超时断开后失去UiAutomation连接；另1项高清预览测试在导入首帧出现、busy尚未结束时发起请求，触发忙碌保护。修正测试等待条件后独立编辑器44/44通过，明确验证2048px交互源→3400px真实原片预览。UI重连又暴露菜单可访问性父节点及系统选图确认节点缓存时序问题；改为等待可点击目标、已加载照片与确认按钮，并保留指定317×211 JPEG实际导入校验，最终12/12通过。应用生产代码未因这些测试修正而变化。证据分别为`.tmp/r10-tasks/existing-all/`、`.tmp/libraw-upgrade/r10-a-regression/legacy-editor.json`和`.tmp/libraw-upgrade/r10-a-ui-final/legacy-ui.json`；这是总入口加定点重跑的组合证据，不冒充一次无失败的总回归。

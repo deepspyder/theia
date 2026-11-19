@@ -38,3 +38,15 @@ SHA-256：c61bb5e9b26229f38a6662f5c1de15c4a6dc4bdc70cf9e3b14da8713ab79f113
 - 来源与应用身份不匹配时拒绝执行并说明原因，不能发布输出；重复/已提交结果不得再次发布。无法读取的记录保留为不可操作条目，并保留可理解的错误提示。
 
 证据与范围：finish-review.md 对要求的20张原始截图完成审阅，覆盖 phone、large-font、landscape、tablet 各5张，以及失败、成功、来源变化、应用变化和返回首页状态；结论为 SHIP，未发现材料性 UI 或合同缺陷。该结论仅针对 R10-A 任务浏览器表面；R10 的 DI 宿主、table/encoder 宿主迁移仍未完成，不由本次评审声明完成。PRODUCT.md 缺失；本文不据此补造产品语境，也不改写历史文字、设计 token 或 sidecar。
+
+## R10-B DI receipt typography contract
+
+日期：2026-11-19。普通延伸 incumbent Theia Operate；仅记录 `ExportTasksScreen.kt` 已交付的冻结 DI 任务摘要，不建立新视觉世界。
+
+- 任务浏览器继续使用现有居中 `600dp` 平面滚动列、20dp 横向留白、12dp 项间距和共享 Material 3 Compose 字体角色。文件名使用 `titleSmall`；状态使用主题主色或错误色；选项摘要使用 `bodySmall`；更新时间、尝试次数使用 `labelSmall` 和次级表面文字。
+- 当冻结请求的 artifact 为 DI 时，摘要固定显示 `DI TIFF · 16 bit Cineon ·` 加冻结分辨率；分辨率为零时显示“原始尺寸”，否则显示 `${resolution} px`。该文字只澄清记录类型、位深和尺寸，不改变任务重试、移除或恢复行为。
+- 该扩展沿用炭灰表面、纸白正文、琥珀状态和原生分隔线；没有新增卡片、装饰色、字体或局部 token。既有普通成片摘要继续显示格式、色彩空间和尺寸。
+
+证据：以当前 `ExportTasksScreen.kt`、`DESIGN.md`、`.impeccable/design.json`、本文件及 `.tmp/r10-di-host/review-packet.json` 为源依据；已检查四张原始渲染证据：`responsive/phone/task.png`、`responsive/large-font/task.png`、`responsive/landscape/task.png` 和 `responsive/tablet/task.png`。四种尺寸均保留任务标题、DI TIFF / 16 bit Cineon / 分辨率摘要、状态、时间、尝试次数、分隔线与移除操作；大字体仍可读，横屏和平板维持居中窄列。PRODUCT.md 缺失，未据此补造产品语境。
+
+现存漂移未规范化：任务页仍包含少量源码内联中文操作文本（如“刷新”“取消导出”）及无资源化返回内容描述；这些属于既有实现细节，与本次 DI 摘要扩展无关，未在设计系统中提升为规则，也未在本次修复。

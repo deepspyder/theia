@@ -9,7 +9,7 @@
 
 namespace theia::export_execution {
 
-// Only nativeRenderExportOnce opts in. The scope is confined to the thread
+// Export-only finished and DI entry points opt in. The scope is confined to the thread
 // holding the engine transaction and restores itself even when rendering fails.
 inline thread_local bool one_shot = false;
 inline thread_local bool detailed = false;

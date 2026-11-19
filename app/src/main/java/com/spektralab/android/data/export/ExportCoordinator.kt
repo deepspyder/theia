@@ -55,6 +55,7 @@ internal class ExportCoordinator private constructor(context: Context) {
 
     suspend fun <T> run(uri: Uri, name: String, edit: EditSnapshot, options: ExportOptions,
                         check: () -> Unit, recordReceipt: Boolean = true, frozen: ExportFrameRequest? = null,
+                        artifact: ExportArtifact = ExportArtifact.FINISHED,
                         block: suspend (Task, ExportSourceSnapshot) -> T): T = gate.withLock {
         withContext(Dispatchers.IO) { if (!recovered) { store.recover(); recovered = true } }
         check()
@@ -65,13 +66,14 @@ internal class ExportCoordinator private constructor(context: Context) {
             val runtimeIdentity=withContext(Dispatchers.IO){ExportRuntimeIdentity.current(app)}
             val request = frozen ?: ExportFrameRequest(UUID.randomUUID().toString(), source.sha256, name.take(512),
                 RawDecoder.isRaw(app, uri, name), edit, options, RawDecoder.decoderIdentity, EngineClient.buildInfo(),
-                appIdentity=runtimeIdentity)
+                appIdentity=runtimeIdentity,artifact=artifact)
             require(request.sourceHash==source.sha256){"源照片已经改变，此任务未重新导出"}
             require(request.decoderIdentity==RawDecoder.decoderIdentity && request.rendererIdentity==EngineClient.buildInfo()) {
                 "解码器或显影引擎已更新，请打开原图重新导出"
             }
             require(request.appIdentity==runtimeIdentity){"应用或材料资源已更新，请打开原图重新导出"}
             require(request.edit==edit && request.options==options)
+            require(request.artifact==artifact)
             val task = Task(request, { source.verifyOriginal(app, uri, options.keepLocation, check) }, recordReceipt)
             withContext(Dispatchers.IO) { if (recordReceipt) store.write(request, ExportJobStore.State.QUEUED,
                 sourceReference=com.spektralab.android.data.local.EditStore.editSourceUri(app,uri).toString());task.phase(ExportJobStore.State.PREPARING) }

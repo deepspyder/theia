@@ -145,9 +145,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         historyCrashPhase = audit?.takeIf { it.startsWith("history-crash-") }?.removePrefix("history-crash-")
         historyStorageOnly = audit == "history-storage"
         historyProcessPhase = audit?.removePrefix("history-process-")?.takeIf { it in setOf("seed", "verify", "branch") }
-        exportOptionsMode = audit?.takeIf { it.startsWith("export-tasks-") || it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
+        exportOptionsMode = audit?.takeIf { it.startsWith("di-host") || it.startsWith("export-tasks-") || it.startsWith("detail-") || it.startsWith("professional-output") || it in setOf("export-options", "export-options-application", "export-options-ui", "export-options-batch") }
         overscanExportOnly = audit == "overscan-native"
-        legacyUiOnly = audit == "legacy-ui"
+        legacyUiOnly = audit in setOf("legacy-ui", "legacy-editor")
+        legacyEditorOnly = audit == "legacy-editor"
         exportMatrixPart = arguments?.getString("matrixPart")?.takeIf { audit == "export-matrix" }
         vivoExportMode = audit?.takeIf { it in setOf("vivo-export", "vivo-native", "pipeline-preflight") }
         exportColorDiagnostic = audit == "export-colour-diagnostic"
@@ -281,6 +282,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
     private var dateImprintOnly = false
     private var overscanExportOnly = false
     private var legacyUiOnly = false
+    private var legacyEditorOnly = false
     private var exportMatrixPart: String? = null
     private var exportOptionsMode: String? = null
     private var historyProcessPhase: String? = null
@@ -371,6 +373,10 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         exportOptionsMode?.let { mode ->
             case(mode) {
                 when (mode) {
+                    "di-host" -> DigitalIntermediateHostAudit(this,output).native()
+                    "di-host-application" -> DigitalIntermediateHostAudit(this,output).application()
+                    "di-host-raw" -> DigitalIntermediateHostAudit(this,output).raw()
+                    "di-host-layout" -> DigitalIntermediateHostAudit(this,output).application(true)
                     "export-tasks-storage" -> ExportTasksStorageAudit(this,output).run()
                     "export-tasks-editor" -> ExportTasksEditorAudit(this,output).run()
                     "export-tasks-layout" -> ExportTasksEditorAudit(this,output).run(true)
@@ -400,7 +406,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             return
         }
         if (legacyUiOnly) {
-            uiAudit()
+            if (legacyEditorOnly) editorAudit() else uiAudit()
             val failed = (0 until rows.length()).any { rows.getJSONObject(it).getString("status") == "FAIL" }
             finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK,
                 Bundle().apply { putString("stream", rows.toString(2)) })
@@ -2275,16 +2281,22 @@ class FunctionalAuditInstrumentation : Instrumentation() {
         }
         fun click(label:String) {
             if(android.os.Build.VERSION.SDK_INT>=34) uiAutomation.clearCache()
-            fun locate(n:AccessibilityNodeInfo?):AccessibilityNodeInfo? {
+            fun locate(n:AccessibilityNodeInfo?, clickable:AccessibilityNodeInfo? = null):AccessibilityNodeInfo? {
                 if(n==null)return null
+                val target = if (n.isClickable) n else clickable
                 if(n.text?.toString()==label||n.contentDescription?.toString()==label) {
-                    var candidate:AccessibilityNodeInfo?=n
-                    while(candidate!=null) {if(candidate.isClickable)return candidate;candidate=candidate.parent}
+                    return target
                 }
-                for(i in 0 until n.childCount){val child=locate(n.getChild(i));if(child!=null)return child};return null
+                for(i in 0 until n.childCount){val child=locate(n.getChild(i),target);if(child!=null)return child};return null
             }
-            val node=locate(uiAutomation.rootInActiveWindow)?:error("UI element not clickable: $label\n${tree()}")
-            check(node.performAction(AccessibilityNodeInfo.ACTION_CLICK));waitForIdleSync();Thread.sleep(500)
+            var node: AccessibilityNodeInfo? = null
+            await(15000) {
+                if(android.os.Build.VERSION.SDK_INT>=34) uiAutomation.clearCache()
+                node=locate(uiAutomation.rootInActiveWindow)
+                node!=null
+            }
+            val target=checkNotNull(node) { "UI element not clickable: $label\n${tree()}" }
+            check(target.performAction(AccessibilityNodeInfo.ACTION_CLICK));waitForIdleSync();Thread.sleep(500)
         }
         fun capture(name:String) {
             uiAutomation.takeScreenshot()?.let {bmp->File(output,"ui_$name.png").outputStream().use{bmp.compress(Bitmap.CompressFormat.PNG,100,it)};bmp.recycle()}
@@ -2380,8 +2392,14 @@ class FunctionalAuditInstrumentation : Instrumentation() {
                     for(i in 0 until n.childCount){val found=findImageTile(n.getChild(i));if(found!=null)return found}
                     return null
                 }
-                val tile=findImageTile(uiAutomation.rootInActiveWindow)
-                if(tile!=null) { check(tile.performAction(AccessibilityNodeInfo.ACTION_CLICK)); waitForIdleSync(); Thread.sleep(300) }
+                var tile: AccessibilityNodeInfo? = null
+                await(60000) {
+                    if(android.os.Build.VERSION.SDK_INT>=34)uiAutomation.clearCache()
+                    tile=findImageTile(uiAutomation.rootInActiveWindow)
+                    tile!=null
+                }
+                check(checkNotNull(tile).performAction(AccessibilityNodeInfo.ACTION_CLICK)); waitForIdleSync(); Thread.sleep(300)
+                if(android.os.Build.VERSION.SDK_INT>=34)uiAutomation.clearCache()
                 if (uiAutomation.rootInActiveWindow?.packageName?.toString() == activity.packageName) {
                     await{vm.errorMessage != null || vm.currentUri != null && vm.currentUri != previousUri && vm.lastResult !== old && !vm.busy}
                     check(vm.sourceBitmap?.width==317 && vm.sourceBitmap?.height==211) { "Picker did not import its JPEG fixture" }
@@ -2399,10 +2417,15 @@ class FunctionalAuditInstrumentation : Instrumentation() {
                     for(i in 0 until n.childCount){val found=openLabel(n.getChild(i));if(found!=null)return found}
                     return null
                 }
-                val confirm=openLabel(uiAutomation.rootInActiveWindow)
+                var confirm: String? = null
+                await(30000) {
+                    if(android.os.Build.VERSION.SDK_INT>=34)uiAutomation.clearCache()
+                    confirm=openLabel(uiAutomation.rootInActiveWindow)
+                    confirm!=null || uiAutomation.rootInActiveWindow?.packageName?.toString()==activity.packageName
+                }
                 capture("picker_selected")
-                if (confirm != null) click(confirm)
-                await(15000){vm.errorMessage!=null||vm.lastResult!==old&&vm.hasPhoto&&vm.sourceBitmap!=null&&!vm.busy}
+                confirm?.let(::click)
+                await(120000){vm.errorMessage!=null||vm.lastResult!==old&&vm.hasPhoto&&vm.sourceBitmap!=null&&!vm.busy}
                 check(vm.errorMessage==null){vm.errorMessage!!};capture("picker_imported");"selected a real photo in the system picker and confirmed import/decode/render"
                     .also { check(vm.currentUri!=previousUri && vm.sourceBitmap?.width==317 && vm.sourceBitmap?.height==211) { "Picker did not import its JPEG fixture" } }
             }
@@ -3017,7 +3040,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             .map {(name,fmt)->File(output,name).also {it.outputStream().use {out->fixture.compress(fmt,95,out)}}}
         val rotated=File(output,"rotated.jpg").also {files[0].copyTo(it,true);ExifInterface(it).apply {setAttribute(ExifInterface.TAG_ORIENTATION,"6");saveAttributes()}}
         (files+rotated).forEach {EditStore.save(app,Uri.fromFile(it),EditorParams())}
-        fun open(file: File) {runOnMainSync {vm.dismissError();vm.openPhotos(listOf(Uri.fromFile(file)))};await {vm.errorMessage!=null||vm.lastResult!=null};check(vm.errorMessage==null){vm.errorMessage!!};check(vm.rendered!=null)}
+        fun open(file: File) {runOnMainSync {vm.dismissError();vm.openPhotos(listOf(Uri.fromFile(file)))};await {vm.errorMessage!=null||vm.lastResult!=null&&!vm.busy};check(vm.errorMessage==null){vm.errorMessage!!};check(vm.rendered!=null)}
         for(file in files)case("import.${file.extension}"){open(file);"${vm.rendered!!.width}x${vm.rendered!!.height}; ${vm.log.takeLast(300)}"}
         case("import.exif_orientation"){open(rotated);check(vm.sourceBitmap!!.width==h&&vm.sourceBitmap!!.height==w);"orientation applied"}
         val dng=File(output,"fixture.dng").also { context.assets.open("audit.dng").use {input->it.outputStream().use {out->input.copyTo(out)}} }
@@ -3131,8 +3154,8 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             val large=File(output,"large.png")
             val bitmap=Bitmap.createScaledBitmap(fixture,4000,240,true)
             large.outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
-            EditStore.save(app,Uri.fromFile(large),EditorParams());open(large);check(max(vm.sourceBitmap!!.width,vm.sourceBitmap!!.height)==2048)
-            runOnMainSync{vm.previewTier()};await{!vm.isExporting};check(max(vm.rendered!!.width,vm.rendered!!.height)==3400)
+            EditStore.save(app,Uri.fromFile(large),EditorParams());open(large);check(max(vm.sourceBitmap!!.width,vm.sourceBitmap!!.height)==2048) { "Interactive input: ${vm.sourceBitmap!!.width}x${vm.sourceBitmap!!.height}" }
+            runOnMainSync{vm.previewTier()};await{!vm.isExporting};check(vm.errorMessage==null){vm.errorMessage!!};check(max(vm.rendered!!.width,vm.rendered!!.height)==3400) { "HD result: ${vm.rendered!!.width}x${vm.rendered!!.height}; ${vm.log.takeLast(600)}" }
             "2048px interactive input replaced by actual 3400px source"
         }
         runOnMainSync {vm.release()};Thread.sleep(300)

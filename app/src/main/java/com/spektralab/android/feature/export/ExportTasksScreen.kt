@@ -55,7 +55,10 @@ internal fun ExportTasksScreen(vm:EditorViewModel,modifier:Modifier=Modifier) {
                         ExportJobStore.State.QUEUED->"等待处理";ExportJobStore.State.PUBLISHING->"正在提交文件";null->"记录格式无法读取"
                         else->"处理中"
                     },color=if(entry.state==ExportJobStore.State.FAILED)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                    entry.request?.options?.let {Text("${it.format} · ${it.colorSpace} · ${if(it.customSize!=null) "自定义尺寸" else if(it.resolution==0)"原始尺寸" else "${it.resolution} px"}",style=MaterialTheme.typography.bodySmall)}
+                    entry.request?.options?.let {Text(
+                        if(entry.request.artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
+                            "DI TIFF · 16 bit Cineon · ${if(it.resolution==0)"原始尺寸" else "${it.resolution} px"}"
+                        else "${it.format} · ${it.colorSpace} · ${if(it.customSize!=null) "自定义尺寸" else if(it.resolution==0)"原始尺寸" else "${it.resolution} px"}",style=MaterialTheme.typography.bodySmall)}
                     Text(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(entry.updated)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(stringResource(R.string.tasks_attempt,entry.attempts),style=MaterialTheme.typography.labelSmall)
                     entry.error?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}

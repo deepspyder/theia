@@ -134,7 +134,7 @@ class RenderHostService : Service() {
                         stage(work, "decoding")
                         // Same frozen native request, small enough to avoid the
                         // large-frame driver path. Never used as export pixels.
-                        val reference = if (request.raw && request.options.renderResolution == 0) {
+                        val reference = if (request.artifact==com.spektralab.android.core.model.ExportArtifact.FINISHED && request.raw && request.options.renderResolution == 0) {
                             ExportSourceDecoder.open(this, engine, Uri.fromFile(path), true,
                                 request.edit.toParams(), request.options.copy(resolution = 640, customSize = null), ::checkCancelled)
                             engine.renderExportResolved(request.realisation.film, request.realisation.print).use {
@@ -143,7 +143,11 @@ class RenderHostService : Service() {
                         } else null
                         ExportSourceDecoder.open(this, engine, Uri.fromFile(path), request.raw, request.edit.toParams(), request.options, ::checkCancelled)
                         checkCancelled(); stage(work, "rendering")
-                        measureExport("host_render") { engine.renderExportResolved(request.realisation.film, request.realisation.print) }.use { result ->
+                        measureExport("host_render") {
+                            if(request.artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
+                                engine.renderDigitalIntermediateResolved(request.realisation.film,request.realisation.print)
+                            else engine.renderExportResolved(request.realisation.film, request.realisation.print)
+                        }.use { result ->
                             if (reference != null && !RenderAppearance.compatible(reference,
                                     RenderAppearance.capture(result, ::checkCancelled))) {
                                 throw ExportFailure(ExportFailureCode.INTERNAL, getString(R.string.export_corrupt_frame))

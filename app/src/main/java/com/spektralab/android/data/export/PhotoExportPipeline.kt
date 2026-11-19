@@ -20,15 +20,17 @@ internal class PhotoExportPipeline(private val context: Context) {
                       progress: (String, Float) -> Unit,
                       recordReceipt: Boolean = true,
                       frozen: com.spektralab.android.core.model.ExportFrameRequest? = null,
+                      artifact: com.spektralab.android.core.model.ExportArtifact = frozen?.artifact ?: com.spektralab.android.core.model.ExportArtifact.FINISHED,
                       encode: (Rgba16Source, ExportMetadata, ExportCoordinator.Task) -> String): Output =
-        ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt, frozen) { task, source ->
+        ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt, frozen, artifact) { task, source ->
             val metadata = withContext(Dispatchers.IO) {
                 val exif = runCatching { ExifInterface(source.descriptor.fileDescriptor) }.getOrNull()
                 ExportMetadata.from(exif, options.keepCapture, options.keepLocation)
             }
             val cache = ExportRenderCache.get(context)
             val request = withContext(Dispatchers.IO) {
-                cache.prepareResolved(uri, task.request.edit.toParams(), options, task.request.realisation, check)?.takeIf { it.sourceHash == source.sha256 }
+                if(artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)null else
+                    cache.prepareResolved(uri, task.request.edit.toParams(), options, task.request.realisation, check)?.takeIf { it.sourceHash == source.sha256 }
             }
             var lease: RenderDiskCache.Lease? = null
             try {
@@ -37,6 +39,10 @@ internal class PhotoExportPipeline(private val context: Context) {
                     check(); progress("encoding", 96f)
                     return withContext(Dispatchers.IO) {
                         task.phase(ExportJobStore.State.ENCODING)
+                        if(artifact==com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE) {
+                            val path=encode(result,metadata,task);task.succeeded(path)
+                            return@withContext Output(path,result.width,result.height)
+                        }
                         val params = task.request.edit.toParams()
                         val finished = FinishedRgba16Source.wrap(result,
                             com.spektralab.android.engine.EditorGrade.from(params), params.finishedCrop, check)

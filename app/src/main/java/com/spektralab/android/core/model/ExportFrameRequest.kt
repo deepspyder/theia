@@ -3,6 +3,8 @@ package com.spektralab.android.core.model
 import org.json.JSONObject
 import java.util.UUID
 
+internal enum class ExportArtifact { FINISHED, DIGITAL_INTERMEDIATE }
+
 /** Owned, versioned request. No live editor state or pixel buffers cross the host boundary. */
 internal data class ExportFrameRequest(
     val jobId: String,
@@ -17,6 +19,7 @@ internal data class ExportFrameRequest(
     val submittedAt: Long = System.currentTimeMillis(),
     val namingDate: String = java.time.LocalDate.now().toString(),
     val appIdentity: String = "",
+    val artifact: ExportArtifact = ExportArtifact.FINISHED,
 ) {
     init {
         require(UUID.fromString(jobId).toString() == jobId)
@@ -25,10 +28,13 @@ internal data class ExportFrameRequest(
         require(options.resolution >= 0)
         require(submittedAt >= 0 && (namingDate.isEmpty() || java.time.LocalDate.parse(namingDate).toString() == namingDate))
         require(appIdentity.isEmpty() || appIdentity.matches(Regex("[a-f0-9]{64}")))
+        require(artifact != ExportArtifact.DIGITAL_INTERMEDIATE ||
+            options.format == "TIFF" && options.colorSpace == "sRGB" && options.customSize == null && !options.tiffDeflate)
     }
 
     fun toJson(): String = JSONObject().apply {
-        put("schema", 5); put("job_id", jobId); put("source_sha256", sourceHash)
+        put("schema", 6); put("job_id", jobId); put("source_sha256", sourceHash)
+        put("artifact", artifact.name)
         put("submitted_at", submittedAt); put("naming_date", namingDate)
         put("app_identity", appIdentity)
         put("source_name", sourceName); put("raw", raw); put("edit", JSONObject(edit.json))
@@ -50,7 +56,7 @@ internal data class ExportFrameRequest(
             val json = JSONObject(value)
             val schema = json.getInt("schema")
             require(json.get("schema") is Number && json.getDouble("schema") == schema.toDouble())
-            require(schema in 1..5) { "Unsupported export request" }
+            require(schema in 1..6) { "Unsupported export request" }
             require(schema == 1 || json.getInt("random_version") == 1) { "Unsupported random realisation" }
             val options = json.getJSONObject("options")
             for (key in listOf("custom_size", "naming"))
@@ -70,7 +76,8 @@ internal data class ExportFrameRequest(
                 if (json.has("film_seed")) ExportRealisation(json.getLong("film_seed"), json.getLong("print_seed"))
                 else ExportRealisation.fresh(edit.toParams()),
                 if(schema>=5)json.getLong("submitted_at").also { require(json.get("submitted_at") is Number && json.getDouble("submitted_at")==it.toDouble()) }else 0L,
-                if(schema>=5)json.getString("naming_date")else "",if(schema>=5)json.getString("app_identity")else "")
+                if(schema>=5)json.getString("naming_date")else "",if(schema>=5)json.getString("app_identity")else "",
+                if(schema>=6)ExportArtifact.valueOf(json.getString("artifact"))else ExportArtifact.FINISHED)
         }
     }
 }
