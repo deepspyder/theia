@@ -7,8 +7,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * 极简 16-bit RGB TIFF 写入器：小端、无压缩、可嵌 ICC profile。
- * 输入是紧凑排列的 RGB16（每像素 3 个 short），行优先、首行为顶。
+ * Writes little-endian RGB16 from top-down RGBA16 rows.
+ * The Deflate writer shares the TIFF header and RGB sample packing.
  */
 object TiffWriter {
 
@@ -42,9 +42,21 @@ object TiffWriter {
                           checkCancelled: () -> Unit,
                           metadata: ExportMetadata,
                           read: (Int, Int, ShortArray) -> Unit) {
-        val n = width * height
-        val pixelBytes = n * 3 * 2
+        val pixelBytes = checkedPixelBytes(width, height)
+        checkCancelled()
+        writeHeader(width, height, 1, pixelBytes, icc, metadata, out)
+        writePixels(width, height, grade, out, checkCancelled, read)
+    }
 
+    internal fun checkedPixelBytes(width: Int, height: Int): Int {
+        require(width > 0 && height > 0 && width.toLong() * height <= Int.MAX_VALUE / 6) {
+            "Unsupported TIFF strip size"
+        }
+        return width * height * 6
+    }
+
+    internal fun writeHeader(width: Int, height: Int, compression: Int, pixelBytes: Int,
+                             icc: ByteArray?, metadata: ExportMetadata, out: OutputStream) {
         val rootFields = metadata.rootFields()
         val exifFields = metadata.exifFields()
         val gpsFields = metadata.gpsFields()
@@ -89,7 +101,7 @@ object TiffWriter {
         head.putShort(entryCount.toShort())
         val entries = mutableListOf(
             intArrayOf(256,4,1,width), intArrayOf(257,4,1,height), intArrayOf(258,3,3,bitsOffset),
-            intArrayOf(259,3,1,1), intArrayOf(262,3,1,2), intArrayOf(273,4,1,pixelOffset),
+            intArrayOf(259,3,1,compression), intArrayOf(262,3,1,2), intArrayOf(273,4,1,pixelOffset),
             intArrayOf(277,3,1,3), intArrayOf(278,4,1,height), intArrayOf(279,4,1,pixelBytes),
             intArrayOf(282,5,1,xresOffset), intArrayOf(283,5,1,yresOffset),
             intArrayOf(284,3,1,1), intArrayOf(296,3,1,2))
@@ -106,12 +118,15 @@ object TiffWriter {
         out.write(head.array(), 0, iccOffset)
         if (icc != null) out.write(icc)
         out.write(payload.toByteArray())
+    }
 
+    internal fun writePixels(width: Int, height: Int, grade: Grade?, out: OutputStream,
+                             checkCancelled: () -> Unit, read: (Int, Int, ShortArray) -> Unit) {
         // Neutral/DI output needs neither float grading nor per-sample ByteBuffer calls.
         // A 16-bit sample round-trips through identity Grade unchanged; preserve it directly.
         val outputGrade = grade?.takeUnless { it.isIdentity }
         if (outputGrade == null) {
-            val rows = minOf(32, height)
+            val rows = minOf(32, height, maxOf(1, 65_536 / width))
             val strip = ShortArray(width * rows * 4)
             val encoded = ByteArray(width * rows * 6)
             var y = 0
@@ -138,7 +153,7 @@ object TiffWriter {
         // ---- 像素数据（分块写，避免一次性大缓冲）----
         val chunk = ByteBuffer.allocate(64 * 1024).order(ByteOrder.LITTLE_ENDIAN)
         val px = FloatArray(3)
-        val rows = minOf(32, height)
+        val rows = minOf(32, height, maxOf(1, 65_536 / width))
         val strip = ShortArray(width * rows * 4)
         val native = if (outputGrade.usesNativeGrade) FloatArray(width * rows * 3) else null
         var y = 0

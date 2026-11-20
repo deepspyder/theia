@@ -91,16 +91,7 @@ internal class ProfessionalOutputAudit(private val test: Instrumentation, output
             }
         }
         val before = staging()
-        val cancelled = runCatching {
-            DeflatedTiffWriter.write(test.targetContext,source,identity,null,ByteArrayOutputStream(),{ error("cancel-tiff") },metadata)
-        }.exceptionOrNull()
-        check(cancelled?.message == "cancel-tiff" && staging() == before)
-        val failed = runCatching {
-            DeflatedTiffWriter.write(test.targetContext,source,identity,null,object: java.io.OutputStream() {
-                override fun write(value:Int) { error("io-tiff") }
-            },{},metadata)
-        }.exceptionOrNull()
-        check(failed?.message == "io-tiff" && staging() == before)
+        checkDeflateStaging(identity, metadata)
         val noSpace=object:ContextWrapper(test.targetContext) {
             override fun getCacheDir()=object:File(test.targetContext.cacheDir.path) {override fun getUsableSpace()=0L}
         }
@@ -150,11 +141,67 @@ internal class ProfessionalOutputAudit(private val test: Instrumentation, output
         check(staging()==before)
         File(directory,"timings.json").writeText(timings.toString(2))
         File(directory,"heif.json").writeText(heif.toString(2))
-        return "R08: 32 actual files, 4 ICC profiles, exact RGB16 Deflate parity, row/identity/cancellation/IO cleanup, legacy migration/IPC and real HEIF probe=${capability.available}"
+        return "R08: 32 actual files, 4 ICC profiles, exact RGB16 Deflate parity, bounded rows, single unlinked strip, mid-compression cancellation and copy failure cleanup, legacy migration/IPC and real HEIF probe=${capability.available}"
     }
 
     private fun staging() = test.targetContext.cacheDir.listFiles().orEmpty()
-        .filter { it.name.startsWith(".tiff-") || it.name.startsWith(".heif-") }.map { it.name }.toSet()
+        .filter { it.name.startsWith(".tiff-") || it.name.startsWith(".heif-") || it.name.startsWith("export-fd-") }
+        .map { it.name }.toSet()
+
+    private fun checkDeflateStaging(grade: Grade, metadata: ExportMetadata) {
+        val before = staging()
+        val openStaging = {
+            File("/proc/self/fd").listFiles().orEmpty().mapNotNull {
+                runCatching { android.system.Os.readlink(it.path) }.getOrNull()
+            }.filter { it.contains("/export-fd-") }
+        }
+        val descriptorsBefore = openStaging()
+        val rawBytes = width.toLong() * height * 6
+        val context = object : ContextWrapper(test.targetContext) {
+            override fun getCacheDir(): File = object : File(test.targetContext.cacheDir.path) {
+                // Enough for zlib overhead, insufficient for the old two-raster calculation.
+                override fun getUsableSpace() = 64L * 1024 * 1024 + rawBytes + 1024
+            }
+        }
+        var rowsRead = 0
+        val tracked = object : Rgba16Source by source {
+            override fun readRows(y: Int, rows: Int, destination: ShortArray) {
+                check(y == rowsRead)
+                val open = openStaging() - descriptorsBefore.toSet()
+                check(open.size == 2 && open.toSet().size == 1 && open.all { it.endsWith(" (deleted)") })
+                check(staging() == before)
+                rowsRead += rows
+                source.readRows(y, rows, destination)
+            }
+        }
+        val packed = ByteArrayOutputStream()
+        DeflatedTiffWriter.write(context, tracked, grade, null, packed, {}, metadata)
+        check(rowsRead == height && field(packed.toByteArray(), 259) == 8)
+        check(staging() == before && openStaging() == descriptorsBefore)
+
+        rowsRead = 0
+        val cancelled = ByteArrayOutputStream()
+        check(runCatching {
+            DeflatedTiffWriter.write(context, tracked, grade, null, cancelled, {
+                if (rowsRead > 0) error("cancel-tiff")
+            }, metadata)
+        }.exceptionOrNull()?.message == "cancel-tiff")
+        check(cancelled.size() == 0 && rowsRead in 1 until height)
+        check(staging() == before && openStaging() == descriptorsBefore)
+
+        val headerSize = field(packed.toByteArray(), 273)
+        var written = 0
+        val failingDestination = object : java.io.OutputStream() {
+            override fun write(value: Int) {
+                if (written >= headerSize) throw java.io.IOException("io-tiff")
+                written++
+            }
+        }
+        check(runCatching {
+            DeflatedTiffWriter.write(context, source, grade, null, failingDestination, {}, metadata)
+        }.exceptionOrNull()?.message == "io-tiff")
+        check(written == headerSize && staging() == before && openStaging() == descriptorsBefore)
+    }
 
     private fun field(bytes:ByteArray,tag:Int):Int {
         val b=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
