@@ -2,15 +2,14 @@ package com.spektralab.android.data.export
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.os.StatFs
-import androidx.core.content.res.ResourcesCompat
-import com.spektralab.android.R
 import com.spektralab.android.core.model.*
 import com.spektralab.android.data.library.SourceProbe
 import com.spektralab.android.data.local.EditStore
 import com.spektralab.android.engine.RawDecoder
+import com.spektralab.android.engine.host.RenderHostClient
 import java.io.Closeable
 import java.io.File
 import java.nio.file.Files
@@ -58,35 +57,38 @@ internal class TableExportSession private constructor(
         } finally { if (small !== bitmap) small.recycle() }
     }
 
-    fun publish(onCommitted: () -> Unit): String {
+    suspend fun publish(onCommitted: () -> Unit): String {
         check(staged.size == inputs.size) { "TABLE_EXPORT_SOURCE" }
         inputs.forEach { verify(it, bytes = true) }
         check(StatFs(context.cacheDir.path).availableBytes > plan.rgbaBytes + 32L * 1024 * 1024) { "TABLE_EXPORT_DISK" }
-        val font = requireNotNull(ResourcesCompat.getFont(context, R.font.resource_han_rounded_regular))
-        var previous: Bitmap? = null
+        val sourceKeys = staged.keys.toList()
+        val layout = TableCompositionHostRequest.freeze(plan.request, sourceKeys).toJson().toByteArray(Charsets.UTF_8)
+        val sources = mutableListOf<ParcelFileDescriptor>()
         try {
-            checkCapacity(plan.rgbaBytes + 32L * 1024 * 1024)
-            val output = TableComposition.render(plan, font, check) { item ->
-                // One source bitmap at a time, including repeated placements in different z slots.
-                previous?.recycle()
-                BitmapFactory.decodeFile(staged.getValue(item.source.uri).path)?.also { previous = it }
-                    ?: error("TABLE_EXPORT_SOURCE")
+            for (key in sourceKeys) {
+                check()
+                sources += ParcelFileDescriptor.open(staged.getValue(key), ParcelFileDescriptor.MODE_READ_ONLY)
             }
-            try {
-                checkpoint(Checkpoint.COMPOSED)
-                inputs.forEach { verify(it, bytes = false) }
-                val png = plan.request.options.format == TableOutputFormat.PNG
-                val name = "Theia_Project_${System.currentTimeMillis()}_${System.nanoTime()}.${if (png) "png" else "jpg"}"
-                return ExportPublisher(context, {
-                    check(); inputs.forEach { verify(it, bytes = true) }
-                }, onCommitted).write(name, if (png) "image/png" else "image/jpeg") { stream ->
-                    checkpoint(Checkpoint.DESTINATION_OPENED)
-                    check(output.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 100, stream)) { "TABLE_EXPORT_WRITE" }
-                    checkpoint(Checkpoint.ENCODED)
-                    check()
+            EphemeralExportFile.create(context).use { manifest ->
+                ParcelFileDescriptor.AutoCloseOutputStream(manifest.writer).use { it.write(layout) }
+                RenderHostClient(context.applicationContext).composeTable(manifest.reader, sources, check).use { output ->
+                    check(output.width == plan.width && output.height == plan.height) { "TABLE_EXPORT_WRITE" }
+                    checkpoint(Checkpoint.COMPOSED)
+                    inputs.forEach { verify(it, bytes = false) }
+                    val png = plan.request.options.format == TableOutputFormat.PNG
+                    val name = "Theia_Project_${System.currentTimeMillis()}_${System.nanoTime()}.${if (png) "png" else "jpg"}"
+                    return ExportPublisher(context, check, onCommitted).apply {
+                        onReadyToCommit = { inputs.forEach { verify(it, bytes = true) } }
+                    }.write(name, if (png) "image/png" else "image/jpeg") { stream ->
+                        checkpoint(Checkpoint.DESTINATION_OPENED)
+                        output.copyTo(stream, check)
+                        checkpoint(Checkpoint.ENCODED)
+                    }
                 }
-            } finally { output.recycle() }
-        } finally { previous?.recycle() }
+            }
+        } finally {
+            sources.forEach { runCatching { it.close() } }
+        }
     }
 
     private fun verify(input: TableExportInput, bytes: Boolean) {

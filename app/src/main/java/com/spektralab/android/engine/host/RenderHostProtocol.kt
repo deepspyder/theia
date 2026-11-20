@@ -12,6 +12,8 @@ internal object RenderHostProtocol {
     const val DEVICE_RELEASING = 9
     const val DEVICE_RELEASED = 10
     const val ENCODE = 11
+    const val COMPOSE_TABLE = 12
+    const val TABLE_SOURCES = "table_sources"
     const val WIDTH = "width"
     const val HEIGHT = "height"
     const val OFFSET = "offset"

@@ -910,7 +910,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
             if (tableOutputAudit != "table-output-layout") {
                 case("lighttable.output_plan") { TableOutputCoreAudit.geometry() }
                 case("lighttable.output_pixels") { TableOutputCoreAudit.pixels() }
-                case("lighttable.output_safety") { TableOutputCoreAudit.safety(targetContext,output) }
+                case("lighttable.output_safety") { TableOutputCoreAudit.safety(this,output) }
             }
             if (tableOutputAudit != "table-output-core") case("lighttable.output_ui") { TableOutputUiAudit(this,output).run(tableOutputAudit == "table-output-layout") }
             val failed=(0 until rows.length()).count{rows.getJSONObject(it).optString("status")=="FAIL"}

@@ -7,6 +7,7 @@ import com.spektralab.android.engine.SpkException
 import com.spektralab.android.engine.ExportFailure
 import com.spektralab.android.engine.ExportFailureCode
 import com.spektralab.android.data.export.ExportMetadata
+import java.util.UUID
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.Closeable
@@ -20,7 +21,7 @@ internal class RenderHostClient(private val context: Context) {
         source: ParcelFileDescriptor,
         check: () -> Unit,
         progress: (String, Float) -> Unit,
-    ): DescriptorRgba16Source = run(request, source, RenderHostProtocol.START, check, progress, {}) { fd, data ->
+    ): DescriptorRgba16Source = run(request.jobId, request.toJson(), source, RenderHostProtocol.START, check, progress, {}) { fd, data ->
         DescriptorRgba16Source(fd, data.getInt(RenderHostProtocol.WIDTH), data.getInt(RenderHostProtocol.HEIGHT))
     }
 
@@ -33,7 +34,7 @@ internal class RenderHostClient(private val context: Context) {
         metadata: ExportMetadata,
         check: () -> Unit,
         progress: (String, Float) -> Unit = { _, _ -> },
-    ): EncodedPhoto = run(request, source, RenderHostProtocol.ENCODE, check, progress, {
+    ): EncodedPhoto = run(request.jobId, request.toJson(), source, RenderHostProtocol.ENCODE, check, progress, {
         putInt(RenderHostProtocol.WIDTH, width)
         putInt(RenderHostProtocol.HEIGHT, height)
         putLong(RenderHostProtocol.OFFSET, pixelOffset)
@@ -44,8 +45,22 @@ internal class RenderHostClient(private val context: Context) {
         EncodedPhoto(fd, data.getInt(RenderHostProtocol.WIDTH), data.getInt(RenderHostProtocol.HEIGHT))
     }
 
+    suspend fun composeTable(
+        manifest: ParcelFileDescriptor,
+        sources: List<ParcelFileDescriptor>,
+        check: () -> Unit,
+        progress: (String, Float) -> Unit = { _, _ -> },
+    ): EncodedPhoto = run(UUID.randomUUID().toString(), "", manifest, RenderHostProtocol.COMPOSE_TABLE,
+        check, progress, {
+            require(sources.size in 1..200)
+            putParcelableArrayList(RenderHostProtocol.TABLE_SOURCES, ArrayList(sources))
+        }) { fd, data ->
+        EncodedPhoto(fd, data.getInt(RenderHostProtocol.WIDTH), data.getInt(RenderHostProtocol.HEIGHT))
+    }
+
     private suspend fun <T : Closeable> run(
-        request: ExportFrameRequest,
+        jobId: String,
+        requestJson: String,
         source: ParcelFileDescriptor,
         operation: Int,
         check: () -> Unit,
@@ -53,20 +68,19 @@ internal class RenderHostClient(private val context: Context) {
         extras: Bundle.() -> Unit,
         receive: (ParcelFileDescriptor, Bundle) -> T,
     ): T = coroutineScope {
-        val connection = Connection(request.jobId, progress, receive)
+        val connection = Connection(jobId, progress, receive)
         var transferred = false
         var watcher: Job? = null
         try {
             withContext(Dispatchers.Main.immediate) { connection.bind() }
             val host = withTimeout(10_000) { connection.ready.await() }
             check()
-            val json = request.toJson()
-            require(json.toByteArray(Charsets.UTF_8).size <= 128 * 1024)
+            require(requestJson.toByteArray(Charsets.UTF_8).size <= 128 * 1024)
             host.send(Message.obtain(null, operation).apply {
                 replyTo = connection.receiver
                 data = Bundle().apply {
-                    putString(RenderHostProtocol.JOB, request.jobId)
-                    putString(RenderHostProtocol.REQUEST, json)
+                    putString(RenderHostProtocol.JOB, jobId)
+                    putString(RenderHostProtocol.REQUEST, requestJson)
                     putParcelable(RenderHostProtocol.DESCRIPTOR, source)
                     extras()
                 }

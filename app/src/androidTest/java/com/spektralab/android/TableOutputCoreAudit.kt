@@ -1,5 +1,7 @@
 package com.spektralab.android
 
+import android.app.Instrumentation
+import android.content.Intent
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
@@ -7,10 +9,13 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.core.content.res.ResourcesCompat
 import com.spektralab.android.core.model.*
 import com.spektralab.android.data.export.TableComposition
 import com.spektralab.android.data.export.TableExportSession
 import com.spektralab.android.data.local.EditStore
+import kotlinx.coroutines.runBlocking
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 import kotlin.math.abs
@@ -84,7 +89,9 @@ internal object TableOutputCoreAudit {
         return "Independent sample oracles for unrotated pixels, rotated clear corners, exact alpha exterior, front/back order, table-only58percent overlap transmission and night luminance passed; no screenshot/thumbnail reference"
     }
 
-    fun safety(context: Context, output: File): String {
+    fun safety(test: Instrumentation, output: File): String = runBlocking {
+        val context = test.targetContext
+        val activity = test.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val root=File(output,"table-output-core-${System.nanoTime()}").apply{mkdirs()}
         val isolated=object:ContextWrapper(context){
             override fun getFilesDir()=File(root,"private").apply{mkdirs()}
@@ -97,8 +104,18 @@ internal object TableOutputCoreAudit {
         val bound=EditStore.tableSource(isolated,TableSource(uri.toString(),source.name))
         val scene=LightTableScene(listOf(item(uri.toString(),0f,0f).copy(source=bound)))
         val request=TableExportRequest(scene,TableExportOptions(mode=TableOutputMode.CONTACT,longEdge=1600),null)
-        fun ids():Set<Long> = context.contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,arrayOf("_id"),null,null,null)!!.use { c ->
-            buildSet{while(c.moveToNext())add(c.getLong(0))}
+        fun ids(): Set<Long> {
+            val args = android.os.Bundle().apply {
+                if (android.os.Build.VERSION.SDK_INT >= 30) putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            }
+            val columns = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME)
+            return context.contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, args, null)!!.use { cursor ->
+                buildSet {
+                    while (cursor.moveToNext()) {
+                        if (cursor.getString(1).orEmpty().startsWith("Theia_Project_")) add(cursor.getLong(0))
+                    }
+                }
+            }
         }
         val before=ids();val bytes=source.readBytes()
         try {
@@ -108,16 +125,29 @@ internal object TableOutputCoreAudit {
                 insufficient.recycle()
                 session.stage(session.inputs.single(),image)
                 session.checkpoint={if(it==TableExportSession.Checkpoint.DESTINATION_OPENED)error("Injected writer failure")}
-                check(runCatching{session.publish{error("Unexpected commit")}}.isFailure)
+                check(runCatching { session.publish { error("Unexpected commit") } }.exceptionOrNull()?.message == "Injected writer failure")
             }
-            check(ids()==before)
+            check(ids() == before) { "Unexpected change in project output rows: before=$before after=${ids()}" }
             check(isolated.cacheDir.listFiles().orEmpty().none{it.name.startsWith("table-export-")})
+            val start = android.os.SystemClock.elapsedRealtime()
+            publishedParity(isolated, request, image, before, ::ids)
+            val parityMillis = android.os.SystemClock.elapsedRealtime() - start
+            TableExportSession.prepare(isolated, request, {}, { _, _ -> }).use { session ->
+                session.stage(session.inputs.single(), image)
+                session.checkpoint = {
+                    if (it == TableExportSession.Checkpoint.DESTINATION_OPENED) source.appendBytes(byteArrayOf(1))
+                }
+                val failure = runCatching { session.publish { error("Unexpected commit") } }.exceptionOrNull()
+                check(failure?.message == "TABLE_EXPORT_CHANGED") { "Late source change was not refused: $failure" }
+            }
+            source.writeBytes(bytes)
+            check(ids() == before)
             var cancel=false
             TableExportSession.prepare(isolated,request,{check(!cancel){"cancelled"}}, {_,_->}).use { session ->
                 session.stage(session.inputs.single(),image);cancel=true
                 check(runCatching{session.publish{}}.isFailure)
             }
-            check(ids()==before)
+            check(ids() == before) { "Unexpected change in project output rows: before=$before after=${ids()}" }
             TableExportSession.prepare(isolated,request,{}, {_,_->}).use { session ->
                 session.stage(session.inputs.single(),image)
                 EditStore.save(isolated,uri,EditorParams().apply{brightness=29f;grainActive=false;glareActive=false})
@@ -131,11 +161,53 @@ internal object TableOutputCoreAudit {
                 source.appendBytes(byteArrayOf(1));check(runCatching{session.publish{}}.isFailure)
             }
             source.writeBytes(bytes)
-            check(ids()==before)
+            check(ids() == before) { "Unexpected change in project output rows: before=$before after=${ids()}" }
             val missing=request.copy(scene=scene.copy(items=scene.items.map{it.copy(source=TableSource("file:///missing.png","missing.png"))}))
             check(runCatching{TableExportSession.prepare(isolated,missing,{}, {_,_->})}.isFailure)
             check(source.readBytes().contentEquals(bytes) && EditStore.load(isolated,uri)!!.brightness==29f)
-        } finally {image.recycle();EditStore.closeForTests(isolated)}
-        return "Frozen source/edit references, stale revision refusal and explicit latest snapshot, changed parameter/content rejection, missing source, actual MediaStore pending-row failure cleanup, cancellation, own temporary files cleanup, original/edit preservation passed"
+            "Full PNG/JPEG bytes matched local reference in ${parityMillis}ms across two exports. " +
+                "Frozen source/edit checks, stale and missing source refusal, late source change, MediaStore cleanup, cancellation and original preservation passed"
+        } finally {
+            image.recycle()
+            EditStore.closeForTests(isolated)
+            test.runOnMainSync { activity.finish() }
+        }
+    }
+
+    private suspend fun publishedParity(
+        context: Context,
+        request: TableExportRequest,
+        input: Bitmap,
+        before: Set<Long>,
+        ids: () -> Set<Long>,
+    ) {
+        val first = request.scene.items.single()
+        val second = first.copy(id = UUID.randomUUID().toString(), x = 41.25f, y = 43.125f, rotation = -26.75f)
+        val scene = request.scene.copy(items = listOf(first, second), lightOn = false)
+        val options = listOf(
+            request.options.copy(mode = TableOutputMode.TABLE, paper = TablePaper.SQUARE, transparent = true),
+            request.options.copy(mode = TableOutputMode.POSTER, paper = TablePaper.A4_PORTRAIT,
+                longEdge = 2400, format = TableOutputFormat.JPEG, title = "Theia", date = "2026-11-20", numbered = true),
+        )
+        val font = requireNotNull(ResourcesCompat.getFont(context, R.font.resource_han_rounded_regular))
+        for (settings in options) {
+            TableExportSession.prepare(context, request.copy(scene = scene, options = settings), {}, { _, _ -> }).use { session ->
+                session.stage(session.inputs.single(), input)
+                val edge = session.inputs.single().requestedEdge.coerceAtMost(input.width)
+                val referenceSource = Bitmap.createScaledBitmap(input, edge, edge, true)
+                val reference = try { TableComposition.render(session.plan, font) { referenceSource } }
+                    finally { if (referenceSource !== input) referenceSource.recycle() }
+                val expected = try {
+                    val format = if (settings.format == TableOutputFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                    ByteArrayOutputStream().also { check(reference.compress(format, 100, it)) }.toByteArray()
+                } finally { reference.recycle() }
+                val uri = Uri.parse(session.publish {}.removePrefix("相册: "))
+                try {
+                    val actual = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+                    check(actual.contentEquals(expected)) { "${settings.format} bytes no longer match local composition" }
+                } finally { context.contentResolver.delete(uri, null, null) }
+                check(ids() == before)
+            }
+        }
     }
 }

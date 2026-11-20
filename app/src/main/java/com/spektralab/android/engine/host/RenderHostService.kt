@@ -4,18 +4,28 @@ import android.app.*
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.*
 import com.spektralab.android.R
 import com.spektralab.android.core.model.ExportArtifact
 import com.spektralab.android.core.model.ExportFrameRequest
+import com.spektralab.android.core.model.TableOutputFormat
+import com.spektralab.android.data.export.TableExportSession
 import com.spektralab.android.data.export.EphemeralExportFile
 import com.spektralab.android.data.export.ExportMetadata
 import com.spektralab.android.data.export.FinishedPhoto
+import com.spektralab.android.data.export.TableComposition
+import com.spektralab.android.data.export.TableCompositionHostRequest
 import org.json.JSONObject
 import com.spektralab.android.data.export.ExportSourceDecoder
 import com.spektralab.android.data.export.measureExport
 import com.spektralab.android.engine.*
 import java.io.File
+import java.io.FilterOutputStream
+import android.system.Os
+import android.system.OsConstants
+import androidx.core.content.res.ResourcesCompat
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -36,7 +46,7 @@ class RenderHostService : Service() {
     private var cpuLock: PowerManager.WakeLock? = null
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { message ->
         when (message.what) {
-            RenderHostProtocol.START, RenderHostProtocol.ENCODE -> start(message)
+            RenderHostProtocol.START, RenderHostProtocol.ENCODE, RenderHostProtocol.COMPOSE_TABLE -> start(message)
             RenderHostProtocol.CANCEL -> active?.takeIf { it.id == message.data.getString(RenderHostProtocol.JOB) }?.let {
                 it.cancelled.set(true); it.engine?.cancel()
             }
@@ -86,11 +96,20 @@ class RenderHostService : Service() {
         cpuLock?.acquire(60 * 60 * 1000L)
         message.data.classLoader = ParcelFileDescriptor::class.java.classLoader
         @Suppress("DEPRECATION")
-        val source = message.data.getParcelable<ParcelFileDescriptor>(RenderHostProtocol.DESCRIPTOR) ?: return
-        val reply = message.replyTo ?: run { source.close(); return }
+        val source = message.data.getParcelable<ParcelFileDescriptor>(RenderHostProtocol.DESCRIPTOR)
+        @Suppress("DEPRECATION")
+        val tableSources = if (message.what == RenderHostProtocol.COMPOSE_TABLE)
+            message.data.getParcelableArrayList<ParcelFileDescriptor>(RenderHostProtocol.TABLE_SOURCES).orEmpty() else emptyList()
+        val reply = message.replyTo
+        if (source == null || reply == null) {
+            source?.close()
+            tableSources.forEach { runCatching { it.close() } }
+            return
+        }
         val id = message.data.getString(RenderHostProtocol.JOB).orEmpty()
         if (active != null) {
-            source.close(); send(reply, RenderHostProtocol.FAILED, id) { putString("error", "Render host busy") }; return
+            source.close(); tableSources.forEach { it.close() }
+            send(reply, RenderHostProtocol.FAILED, id) { putString("error", "Render host busy") }; return
         }
         val work = Work(id, reply)
         val requestJson = message.data.getString(RenderHostProtocol.REQUEST).orEmpty()
@@ -106,21 +125,27 @@ class RenderHostService : Service() {
                 main.postDelayed(this, 150)
             }
         })
-        val encoding = message.what == RenderHostProtocol.ENCODE
+        val operation = message.what
         val arguments = message.data
         owner.execute {
-            execute(work, requestJson, source, arguments.takeIf { encoding })
+            execute(work, requestJson, source, operation, arguments.takeIf { operation != RenderHostProtocol.START }, tableSources)
         }
     }
 
-    private fun execute(work: Work, requestJson: String, source: ParcelFileDescriptor, encoding: Bundle?) {
+    private fun execute(work: Work, requestJson: String, source: ParcelFileDescriptor, operation: Int,
+                        arguments: Bundle?, tableSources: List<ParcelFileDescriptor>) {
         fun checkCancelled() { if (work.cancelled.get() || Thread.currentThread().isInterrupted) throw SpkException("render cancelled") }
         try {
             source.use {
-                if (encoding != null) {
-                    encode(work, requestJson, source, encoding, ::checkCancelled)
+                if (operation == RenderHostProtocol.ENCODE) {
+                    encode(work, requestJson, source, requireNotNull(arguments), ::checkCancelled)
                     return
                 }
+                if (operation == RenderHostProtocol.COMPOSE_TABLE) {
+                    composeTable(work, source, tableSources, ::checkCancelled)
+                    return
+                }
+                require(operation == RenderHostProtocol.START)
                 // Object singletons are process-local. Resolve positive/BW material semantics
                 // before converting the frozen edit to native parameters in this :render process.
                 measureExport("material_catalog") { StockCatalog.load(this) }
@@ -247,6 +272,93 @@ class RenderHostService : Service() {
                     putParcelable(RenderHostProtocol.DESCRIPTOR, output.reader)
                 }
             }
+        }
+    }
+
+    private fun composeTable(
+        work: Work,
+        manifest: ParcelFileDescriptor,
+        sourceDescriptors: List<ParcelFileDescriptor>,
+        checkCancelled: () -> Unit,
+    ) {
+        try {
+            require(sourceDescriptors.size in 1..200)
+            val raw = ParcelFileDescriptor.AutoCloseInputStream(manifest).use { input ->
+                val bytes = ByteArray(TableCompositionHostRequest.MAX_BYTES + 1)
+                var used = 0
+                while (used < bytes.size) {
+                    checkCancelled()
+                    val count = input.read(bytes, used, bytes.size - used)
+                    if (count < 0) break
+                    used += count
+                }
+                require(used <= TableCompositionHostRequest.MAX_BYTES) { "TABLE_EXPORT_CAPACITY" }
+                String(bytes, 0, used, Charsets.UTF_8)
+            }
+            val payload = TableCompositionHostRequest.fromJson(raw)
+            require(payload.sourceUris.size == sourceDescriptors.size)
+            val plan = payload.request.plan()
+            check(plan.items.map { it.source.uri }.toSet() == payload.sourceUris.toSet()) { "TABLE_EXPORT_SOURCE" }
+            TableExportSession.checkCapacity(plan.rgbaBytes + 32L * 1024 * 1024)
+            var stagedBytes = 0L
+            sourceDescriptors.forEach { descriptor ->
+                val size = descriptor.statSize
+                check(size in 1..TableExportSession.MAX_STAGE_BYTES) { "TABLE_EXPORT_SOURCE" }
+                stagedBytes += size
+                check(stagedBytes <= TableExportSession.MAX_STAGE_BYTES) { "TABLE_EXPORT_CAPACITY" }
+            }
+            val descriptors = payload.sourceUris.zip(sourceDescriptors).toMap()
+            val font = requireNotNull(ResourcesCompat.getFont(this, R.font.resource_han_rounded_regular))
+            var previous: Bitmap? = null
+            val bitmap = try {
+                stage(work, "composing")
+                measureExport("table_host_compose") {
+                    TableComposition.render(plan, font, checkCancelled) { placement ->
+                        checkCancelled()
+                        previous?.recycle()
+                        previous = null
+                        val descriptor = descriptors.getValue(placement.source.uri).fileDescriptor
+                        Os.lseek(descriptor, 0L, OsConstants.SEEK_SET)
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFileDescriptor(descriptor, null, bounds)
+                        check(bounds.outMimeType == "image/png") { "TABLE_EXPORT_SOURCE" }
+                        TableExportSession.checkSourceSize(bounds.outWidth, bounds.outHeight)
+                        Os.lseek(descriptor, 0L, OsConstants.SEEK_SET)
+                        BitmapFactory.decodeFileDescriptor(descriptor)?.also { previous = it }
+                            ?: error("TABLE_EXPORT_SOURCE")
+                    }
+                }
+            } finally { previous?.recycle() }
+            try {
+                EphemeralExportFile.create(this).use { output ->
+                    stage(work, "encoding")
+                    ParcelFileDescriptor.AutoCloseOutputStream(output.writer).use { stream ->
+                        val format = if (payload.request.options.format == TableOutputFormat.PNG)
+                            Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                        val cancellable = object : FilterOutputStream(stream) {
+                            override fun write(value: Int) {
+                                checkCancelled()
+                                out.write(value)
+                            }
+                            override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                                checkCancelled()
+                                out.write(bytes, offset, length)
+                            }
+                        }
+                        measureExport("table_host_encode") {
+                            check(bitmap.compress(format, 100, cancellable)) { "TABLE_EXPORT_WRITE" }
+                        }
+                    }
+                    checkCancelled()
+                    terminal(work, RenderHostProtocol.COMPLETE) {
+                        putInt(RenderHostProtocol.WIDTH, bitmap.width)
+                        putInt(RenderHostProtocol.HEIGHT, bitmap.height)
+                        putParcelable(RenderHostProtocol.DESCRIPTOR, output.reader)
+                    }
+                }
+            } finally { bitmap.recycle() }
+        } finally {
+            sourceDescriptors.forEach { runCatching { it.close() } }
         }
     }
 
