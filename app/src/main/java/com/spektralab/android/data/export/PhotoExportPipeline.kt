@@ -8,6 +8,9 @@ import com.spektralab.android.core.model.ExportOptions
 import com.spektralab.android.data.cache.ExportRenderCache
 import com.spektralab.android.data.cache.RenderDiskCache
 import com.spektralab.android.engine.Rgba16Source
+import com.spektralab.android.engine.host.DescriptorRgba16Source
+import com.spektralab.android.engine.host.EncodedPhoto
+import com.spektralab.android.engine.host.RenderHostClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -22,6 +25,7 @@ internal class PhotoExportPipeline(private val context: Context) {
                       frozen: com.spektralab.android.core.model.ExportFrameRequest? = null,
                       artifact: com.spektralab.android.core.model.ExportArtifact = frozen?.artifact ?: com.spektralab.android.core.model.ExportArtifact.FINISHED,
                       validateRendered: (Rgba16Source) -> Unit = {},
+                      publish: ((EncodedPhoto, ExportCoordinator.Task) -> String)? = null,
                       encode: (Rgba16Source, ExportMetadata, ExportCoordinator.Task) -> String): Output =
         ExportCoordinator.get(context).run(uri, name, edit, options, check, recordReceipt, frozen, artifact) { task, source ->
             val metadata = withContext(Dispatchers.IO) {
@@ -46,16 +50,25 @@ internal class PhotoExportPipeline(private val context: Context) {
                             val path=encode(result,metadata,task);task.succeeded(path)
                             return@withContext Output(path,result.width,result.height)
                         }
-                        val params = task.request.edit.toParams()
-                        val finished = FinishedRgba16Source.wrap(result,
-                            com.spektralab.android.engine.EditorGrade.from(params), params.finishedCrop, check)
-                        val sized = SizedRgba16Source.wrap(finished, options.customSize, check)
-                        val converted = OutputConvertedSource.wrap(sized,
-                            if (sized.gradeApplied) com.spektralab.android.engine.EditorGrade.identity else com.spektralab.android.engine.EditorGrade.from(params),
-                            options.renderColorSpace, options.outputColorSpace, check)
-                        val path = encode(converted, metadata, task)
+                        if (publish != null) {
+                            val client = RenderHostClient(context).also { it.onHostStarted = task::hostStarted }
+                            val (descriptor, offset) = when (result) {
+                                is DescriptorRgba16Source -> result.duplicateDescriptor() to 0L
+                                is RenderDiskCache.Lease -> result.duplicateDescriptor() to result.pixelOffset
+                                else -> error("Finished export requires a file-backed source")
+                            }
+                            descriptor.use {
+                                client.encode(task.request, it, result.width, result.height, offset, metadata, check).use { encoded ->
+                                    val path = publish(encoded, task)
+                                    task.succeeded(path)
+                                    return@withContext Output(path, encoded.width, encoded.height)
+                                }
+                            }
+                        }
+                        val finished = FinishedPhoto.prepare(result, task.request, check)
+                        val path = encode(finished, metadata, task)
                         task.succeeded(path)
-                        Output(path, sized.width, sized.height)
+                        Output(path, finished.width, finished.height)
                     }
                 }
                 val cached = lease

@@ -6,16 +6,53 @@ import com.spektralab.android.core.model.ExportFrameRequest
 import com.spektralab.android.engine.SpkException
 import com.spektralab.android.engine.ExportFailure
 import com.spektralab.android.engine.ExportFailureCode
+import com.spektralab.android.data.export.ExportMetadata
 import kotlinx.coroutines.*
+import org.json.JSONObject
 import java.io.Closeable
 
 /** Asynchronous control channel. Progress/cancel never queue behind a native dispatch. */
 internal class RenderHostClient(private val context: Context) {
     internal var onHostStarted: ((Int) -> Unit)? = null
 
-    suspend fun render(request: ExportFrameRequest, source: ParcelFileDescriptor,
-                       check: () -> Unit, progress: (String, Float) -> Unit): DescriptorRgba16Source = coroutineScope {
-        val connection = Connection(request.jobId, progress)
+    suspend fun render(
+        request: ExportFrameRequest,
+        source: ParcelFileDescriptor,
+        check: () -> Unit,
+        progress: (String, Float) -> Unit,
+    ): DescriptorRgba16Source = run(request, source, RenderHostProtocol.START, check, progress, {}) { fd, data ->
+        DescriptorRgba16Source(fd, data.getInt(RenderHostProtocol.WIDTH), data.getInt(RenderHostProtocol.HEIGHT))
+    }
+
+    suspend fun encode(
+        request: ExportFrameRequest,
+        source: ParcelFileDescriptor,
+        width: Int,
+        height: Int,
+        pixelOffset: Long,
+        metadata: ExportMetadata,
+        check: () -> Unit,
+    ): EncodedPhoto = run(request, source, RenderHostProtocol.ENCODE, check, { _, _ -> }, {
+        putInt(RenderHostProtocol.WIDTH, width)
+        putInt(RenderHostProtocol.HEIGHT, height)
+        putLong(RenderHostProtocol.OFFSET, pixelOffset)
+        val encoded = JSONObject(metadata.attributes).toString()
+        require(encoded.toByteArray(Charsets.UTF_8).size <= 128 * 1024) { "Export metadata exceeds host capacity" }
+        putString(RenderHostProtocol.METADATA, encoded)
+    }) { fd, data ->
+        EncodedPhoto(fd, data.getInt(RenderHostProtocol.WIDTH), data.getInt(RenderHostProtocol.HEIGHT))
+    }
+
+    private suspend fun <T : Closeable> run(
+        request: ExportFrameRequest,
+        source: ParcelFileDescriptor,
+        operation: Int,
+        check: () -> Unit,
+        progress: (String, Float) -> Unit,
+        extras: Bundle.() -> Unit,
+        receive: (ParcelFileDescriptor, Bundle) -> T,
+    ): T = coroutineScope {
+        val connection = Connection(request.jobId, progress, receive)
         var transferred = false
         var watcher: Job? = null
         try {
@@ -24,12 +61,13 @@ internal class RenderHostClient(private val context: Context) {
             check()
             val json = request.toJson()
             require(json.toByteArray(Charsets.UTF_8).size <= 128 * 1024)
-            host.send(Message.obtain(null, RenderHostProtocol.START).apply {
+            host.send(Message.obtain(null, operation).apply {
                 replyTo = connection.receiver
                 data = Bundle().apply {
                     putString(RenderHostProtocol.JOB, request.jobId)
                     putString(RenderHostProtocol.REQUEST, json)
                     putParcelable(RenderHostProtocol.DESCRIPTOR, source)
+                    extras()
                 }
             })
             watcher = launch(Dispatchers.IO) {
@@ -53,15 +91,19 @@ internal class RenderHostClient(private val context: Context) {
         }
     }
 
-    private inner class Connection(val id: String, val progress: (String, Float) -> Unit) : ServiceConnection {
+    private inner class Connection<T : Closeable>(
+        val id: String,
+        val progress: (String, Float) -> Unit,
+        val receive: (ParcelFileDescriptor, Bundle) -> T,
+    ) : ServiceConnection {
         val ready = CompletableDeferred<Messenger>()
-        val result = CompletableDeferred<DescriptorRgba16Source>()
+        val result = CompletableDeferred<T>()
         private val terminated = CompletableDeferred<Unit>()
         private var host: Messenger? = null
         private var binder: IBinder? = null
         private var bound = false
         private var pid = 0
-        private var pixels: DescriptorRgba16Source? = null
+        private var returned: T? = null
         private val intent = Intent(context, RenderHostService::class.java)
         private val death = IBinder.DeathRecipient { failed("Render host exited; the current edits are preserved") }
         val receiver = Messenger(Handler(Looper.getMainLooper()) { message ->
@@ -81,9 +123,17 @@ internal class RenderHostClient(private val context: Context) {
                     terminated.complete(Unit)
                     if (descriptor != null) {
                         try {
-                            val output = DescriptorRgba16Source(descriptor, message.data.getInt("width"), message.data.getInt("height"))
-                            if (result.complete(output)) pixels = output else output.close()
-                        } catch (failure: Exception) { result.completeExceptionally(failure) }
+                            val output = receive(descriptor, message.data)
+                            returned = output
+                            if (!result.complete(output)) {
+                                returned = null
+                                output.close()
+                            }
+                        } catch (failure: Throwable) {
+                            if (failure !is Exception && failure !is OutOfMemoryError) throw failure
+                            runCatching { descriptor.close() }
+                            result.completeExceptionally(failure)
+                        }
                     } else result.completeExceptionally(SpkException("Missing host result"))
                 }
                 RenderHostProtocol.FAILED -> {
@@ -141,7 +191,7 @@ internal class RenderHostClient(private val context: Context) {
                     withTimeoutOrNull(3_000) { terminated.await() }
                 }
             }
-            if (!transferred) pixels?.close()
+            if (!transferred) returned?.close()
             withContext(Dispatchers.Main.immediate) {
                 binder?.let { runCatching { it.unlinkToDeath(death, 0) } }
                 if (bound) { context.unbindService(this@Connection); bound = false }

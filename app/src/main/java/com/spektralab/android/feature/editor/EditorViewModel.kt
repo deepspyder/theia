@@ -1834,6 +1834,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                             renderProgress = if (stage == "encoding") 96f
                                 else max(renderProgress ?: 8f, 8f + percent * .86f).coerceAtMost(94f)
                         },
+                        publish = { encoded, task -> publishEncoded(encoded, task.request.submittedAt.toString(), exportParams, options, task) },
                     ) { result, metadata, task ->
                         activeExportTask = task
                         if(artifact == com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
@@ -1914,6 +1915,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         beforeNative = { withContext(engineDispatcher) { restore = true; e.park(); RenderAdmission.check(app) } },
                         progress = { stage, percent -> renderStage = exportStageLabel(stage); renderProgress = percent },
                         frozen = frozen,
+                        publish = { encoded, task -> publishEncoded(encoded, frozen.submittedAt.toString(), frozen.edit.toParams(), frozen.options, task) },
                     ) { pixels, metadata, task ->
                         activeExportTask = task
                         if(frozen.artifact == com.spektralab.android.core.model.ExportArtifact.DIGITAL_INTERMEDIATE)
@@ -2538,6 +2540,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                             progress = { stage, _ ->
                                 renderStage = "第 ${i + 1}/${batchPhotos.size} 张：${exportStageLabel(stage)}"
                             },
+                            publish = { encoded, task -> publishEncoded(encoded, "$batchTs-$i", photoParams, options, task) },
                         ) { result, metadata, task ->
                             activeExportTask = task
                             saveNativeResult(result, "$batchTs-$i", photoParams, options, metadata)
@@ -2935,6 +2938,21 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
         val bitmap = com.spektralab.android.data.export.Rgba16Bitmap.convert(result, outputGrade, ::checkExportCancellation)
         try { return saveBitmap(bitmap, suffix, options, metadata, fileIcc) } finally { bitmap.recycle() }
+    }
+
+    private fun publishEncoded(
+        encoded: com.spektralab.android.engine.host.EncodedPhoto,
+        suffix: String,
+        editParams: EditorParams,
+        options: ExportOptions,
+        task: com.spektralab.android.data.export.ExportCoordinator.Task,
+    ): String {
+        activeExportTask = task
+        check(task.hasIsolatedHost()) { "Finished photo encoder did not use the isolated export host" }
+        val extension = when (options.format) { "HEIF" -> "heic"; "JPEG" -> "jpg"; else -> options.format.lowercase() }
+        val mime = when (options.format) { "HEIF" -> "image/heic"; "JPEG" -> "image/jpeg"; "PNG" -> "image/png"; else -> "image/tiff" }
+        val name = "${exportFileStem(suffix, editParams, options)}.$extension"
+        return exportPublisher().write(name, mime) { destination -> encoded.copyTo(destination, ::checkExportCancellation) }
     }
 
     private fun exportFileStem(suffix: String, edit: EditorParams, options: ExportOptions): String {

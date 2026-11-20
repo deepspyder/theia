@@ -9,9 +9,10 @@ import java.nio.ByteOrder
 
 /** Row-addressable exact U16 pixels. Binder carries only this descriptor and dimensions. */
 internal class DescriptorRgba16Source(
-    descriptor: ParcelFileDescriptor,
+    private val descriptor: ParcelFileDescriptor,
     override val width: Int,
     override val height: Int,
+    private val pixelOffset: Long = 0,
 ) : Rgba16Source, Closeable {
     private val stream = ParcelFileDescriptor.AutoCloseInputStream(descriptor)
     private val channel = stream.channel
@@ -20,10 +21,12 @@ internal class DescriptorRgba16Source(
     init {
         try {
             require(width in 1..131072 && height in 1..131072)
-            require(channel.size() == width.toLong() * height * 8) { "Incomplete host pixels" }
+            require(pixelOffset in 0..1024 && channel.size() == pixelOffset + width.toLong() * height * 8) { "Incomplete host pixels" }
             buffer = ByteBuffer.allocate(width * minOf(height, 32) * 8).order(ByteOrder.LITTLE_ENDIAN)
         } catch (failure: Throwable) { stream.close(); throw failure }
     }
+
+    fun duplicateDescriptor(): ParcelFileDescriptor = descriptor.dup()
 
     @Synchronized
     override fun readRows(y: Int, rows: Int, destination: ShortArray) {
@@ -32,7 +35,7 @@ internal class DescriptorRgba16Source(
         while (row < rows) {
             val count = minOf(32, rows - row)
             buffer.clear(); buffer.limit(width * count * 8)
-            var position = (y + row).toLong() * width * 8
+            var position = pixelOffset + (y + row).toLong() * width * 8
             while (buffer.hasRemaining()) {
                 val read = channel.read(buffer, position)
                 if (read <= 0) throw EOFException("Incomplete host pixel rows")

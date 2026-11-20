@@ -6,8 +6,12 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.*
 import com.spektralab.android.R
+import com.spektralab.android.core.model.ExportArtifact
 import com.spektralab.android.core.model.ExportFrameRequest
 import com.spektralab.android.data.export.EphemeralExportFile
+import com.spektralab.android.data.export.ExportMetadata
+import com.spektralab.android.data.export.FinishedPhoto
+import org.json.JSONObject
 import com.spektralab.android.data.export.ExportSourceDecoder
 import com.spektralab.android.data.export.measureExport
 import com.spektralab.android.engine.*
@@ -32,7 +36,7 @@ class RenderHostService : Service() {
     private var cpuLock: PowerManager.WakeLock? = null
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { message ->
         when (message.what) {
-            RenderHostProtocol.START -> start(message)
+            RenderHostProtocol.START, RenderHostProtocol.ENCODE -> start(message)
             RenderHostProtocol.CANCEL -> active?.takeIf { it.id == message.data.getString(RenderHostProtocol.JOB) }?.let {
                 it.cancelled.set(true); it.engine?.cancel()
             }
@@ -102,13 +106,21 @@ class RenderHostService : Service() {
                 main.postDelayed(this, 150)
             }
         })
-        owner.execute { execute(work, requestJson, source) }
+        val encoding = message.what == RenderHostProtocol.ENCODE
+        val arguments = message.data
+        owner.execute {
+            execute(work, requestJson, source, arguments.takeIf { encoding })
+        }
     }
 
-    private fun execute(work: Work, requestJson: String, source: ParcelFileDescriptor) {
+    private fun execute(work: Work, requestJson: String, source: ParcelFileDescriptor, encoding: Bundle?) {
         fun checkCancelled() { if (work.cancelled.get() || Thread.currentThread().isInterrupted) throw SpkException("render cancelled") }
         try {
             source.use {
+                if (encoding != null) {
+                    encode(work, requestJson, source, encoding, ::checkCancelled)
+                    return
+                }
                 // Object singletons are process-local. Resolve positive/BW material semantics
                 // before converting the frozen edit to native parameters in this :render process.
                 measureExport("material_catalog") { StockCatalog.load(this) }
@@ -174,7 +186,7 @@ class RenderHostService : Service() {
                     }
                     work.engine = null
                     checkCancelled()
-                    send(work.reply, RenderHostProtocol.COMPLETE, work.id) {
+                    terminal(work, RenderHostProtocol.COMPLETE) {
                         putInt("width", width); putInt("height", height)
                         putParcelable(RenderHostProtocol.DESCRIPTOR, output.reader)
                     }
@@ -182,7 +194,7 @@ class RenderHostService : Service() {
             }
         } catch (failure: Throwable) {
             if (failure !is Exception && failure !is OutOfMemoryError) throw failure
-            send(work.reply, RenderHostProtocol.FAILED, work.id) {
+            terminal(work, RenderHostProtocol.FAILED) {
                 val code = when {
                     work.cancelled.get() || failure.message.orEmpty().contains("cancel", true) -> ExportFailureCode.CANCELLED
                     failure is ExportFailure -> failure.code
@@ -199,11 +211,49 @@ class RenderHostService : Service() {
             }
         } finally {
             work.engine = null
-            main.post { if (active === work) {
-                active = null
-                if (!bound) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
-            } }
+            main.post {
+                if (active === work) active = null
+                if (!bound && active == null) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
         }
+    }
+
+    private fun encode(work: Work, requestJson: String, source: ParcelFileDescriptor,
+                       arguments: Bundle, check: () -> Unit) {
+        val request = ExportFrameRequest.fromJson(requestJson)
+        require(request.jobId == work.id && request.artifact == ExportArtifact.FINISHED)
+        val json = JSONObject(arguments.getString(RenderHostProtocol.METADATA).orEmpty())
+        val metadata = ExportMetadata(json.keys().asSequence().associateWith(json::getString))
+        val width = arguments.getInt(RenderHostProtocol.WIDTH)
+        val height = arguments.getInt(RenderHostProtocol.HEIGHT)
+        val offset = arguments.getLong(RenderHostProtocol.OFFSET)
+        check()
+        stage(work, "encoding")
+        DescriptorRgba16Source(source.dup(), width, height, offset).use { pixels ->
+            val finished = FinishedPhoto.prepare(pixels, request, check)
+            EphemeralExportFile.create(this).use { output ->
+                measureExport("host_encode_${request.options.format}") {
+                    ParcelFileDescriptor.AutoCloseOutputStream(output.writer).use {
+                        FinishedPhoto.write(this, finished, request, metadata, it, check)
+                    }
+                }
+                check()
+                terminal(work, RenderHostProtocol.COMPLETE) {
+                    putInt(RenderHostProtocol.WIDTH, finished.width)
+                    putInt(RenderHostProtocol.HEIGHT, finished.height)
+                    putParcelable(RenderHostProtocol.DESCRIPTOR, output.reader)
+                }
+            }
+        }
+    }
+
+    private fun terminal(work: Work, type: Int, fill: Bundle.() -> Unit) {
+        // A client can submit the next stage as soon as it receives this reply.
+        if (active === work) active = null
+        send(work.reply, type, work.id, fill)
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {

@@ -28,6 +28,7 @@ internal class ExportCoordinator private constructor(context: Context) {
         private val recordReceipt: Boolean = true) {
         private var state = ExportJobStore.State.QUEUED
         private var destination: String? = null
+        private val hostPids = mutableSetOf<Int>()
 
         fun phase(next: ExportJobStore.State) {
             check(state !in setOf(ExportJobStore.State.SUCCEEDED, ExportJobStore.State.FAILED, ExportJobStore.State.CANCELLED))
@@ -39,10 +40,18 @@ internal class ExportCoordinator private constructor(context: Context) {
         fun succeeded(value: String) { destination = value; phase(ExportJobStore.State.SUCCEEDED) }
         fun verifySource() = verify()
 
+        internal fun hostStarted(pid: Int) {
+            check(pid != android.os.Process.myPid()) { "Export host must not share the editor process" }
+            synchronized(hostPids) { hostPids += pid }
+        }
+
+        internal fun hasIsolatedHost() = synchronized(hostPids) { hostPids.isNotEmpty() }
+
         suspend fun render(source: ExportSourceSnapshot, check: () -> Unit,
                            progress: (String, Float) -> Unit): DescriptorRgba16Source {
             phase(ExportJobStore.State.RENDERING)
-            return RenderHostClient(app).render(request, source.descriptor, check, progress)
+            return RenderHostClient(app).also { it.onHostStarted = ::hostStarted }
+                .render(request, source.descriptor, check, progress)
         }
 
         internal fun failed(failure: Throwable) {

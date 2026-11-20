@@ -1,5 +1,6 @@
 package com.spektralab.android.data.cache
 
+import android.os.ParcelFileDescriptor
 import com.spektralab.android.engine.Rgba16Source
 import java.io.Closeable
 import java.io.File
@@ -173,8 +174,15 @@ internal class RenderDiskCache(
         private val input: RandomAccessFile,
     ) : Rgba16Source, Closeable {
         private var closed = false
+        val pixelOffset get() = HEADER_BYTES
         private val maxRows = stripRows(width, height)
         private val buffer = ByteArray(width * maxRows * 8)
+
+        @Synchronized
+        fun duplicateDescriptor(): ParcelFileDescriptor {
+            check(!closed) { "Render cache lease is closed" }
+            return ParcelFileDescriptor.dup(input.fd)
+        }
 
         @Synchronized
         override fun readRows(y: Int, rows: Int, destination: ShortArray) {

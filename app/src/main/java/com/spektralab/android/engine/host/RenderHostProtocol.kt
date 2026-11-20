@@ -11,6 +11,11 @@ internal object RenderHostProtocol {
     const val RELEASE_DEVICE = 8
     const val DEVICE_RELEASING = 9
     const val DEVICE_RELEASED = 10
+    const val ENCODE = 11
+    const val WIDTH = "width"
+    const val HEIGHT = "height"
+    const val OFFSET = "offset"
+    const val METADATA = "metadata"
     const val JOB = "job"
     const val REQUEST = "request"
     const val DESCRIPTOR = "descriptor"
