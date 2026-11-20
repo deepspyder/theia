@@ -391,6 +391,7 @@ class FunctionalAuditInstrumentation : Instrumentation() {
                     "detail-raw" -> FullDetailEditorAudit(this,output).run(true,false)
                     "detail-layout" -> FullDetailEditorAudit(this,output).run(false,true)
                     "professional-output" -> ProfessionalOutputAudit(this, output).run()
+                    "professional-output-encode-host" -> EncodeHostAudit(this).run()
                     "professional-output-application" -> ProfessionalOutputApplicationAudit(this, output).run(false)
                     "professional-output-raw" -> ProfessionalOutputApplicationAudit(this, output).run(true)
                     "professional-output-heif" -> ProfessionalOutputApplicationAudit(this, output).run(true, true)

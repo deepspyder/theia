@@ -4,12 +4,14 @@ import android.app.Instrumentation
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.os.Process
 import com.spektralab.android.core.model.*
 import com.spektralab.android.data.export.ExportSourceDecoder
 import com.spektralab.android.data.export.ExportSourceSnapshot
 import com.spektralab.android.data.export.EphemeralExportFile
 import com.spektralab.android.engine.*
+import com.spektralab.android.engine.host.DescriptorRgba16Source
 import com.spektralab.android.engine.host.RenderHostClient
 import com.spektralab.android.engine.host.RenderHostLease
 import kotlinx.coroutines.runBlocking
@@ -28,7 +30,10 @@ internal class RenderHostAudit(private val test: Instrumentation, private val ou
         val constructor = connectionType.declaredConstructors.single().apply { isAccessible = true }
         val lateProgress = java.util.concurrent.atomic.AtomicInteger()
         val callback: (String, Float) -> Unit = { _, _ -> lateProgress.incrementAndGet() }
-        val connection = constructor.newInstance(clientForLateReply, "late-reply-audit", callback)
+        val receive: (ParcelFileDescriptor, android.os.Bundle) -> DescriptorRgba16Source = { fd, bundle ->
+            DescriptorRgba16Source(fd, bundle.getInt("width"), bundle.getInt("height"))
+        }
+        val connection = constructor.newInstance(clientForLateReply, "late-reply-audit", callback, receive)
         val completed = connectionType.getDeclaredField("result").apply { isAccessible = true }.get(connection) as kotlinx.coroutines.CompletableDeferred<*>
         val receiver = connectionType.getDeclaredField("receiver").apply { isAccessible = true }.get(connection) as android.os.Messenger
         completed.cancel()

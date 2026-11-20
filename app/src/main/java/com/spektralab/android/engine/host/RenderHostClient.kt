@@ -32,7 +32,8 @@ internal class RenderHostClient(private val context: Context) {
         pixelOffset: Long,
         metadata: ExportMetadata,
         check: () -> Unit,
-    ): EncodedPhoto = run(request, source, RenderHostProtocol.ENCODE, check, { _, _ -> }, {
+        progress: (String, Float) -> Unit = { _, _ -> },
+    ): EncodedPhoto = run(request, source, RenderHostProtocol.ENCODE, check, progress, {
         putInt(RenderHostProtocol.WIDTH, width)
         putInt(RenderHostProtocol.HEIGHT, height)
         putLong(RenderHostProtocol.OFFSET, pixelOffset)
